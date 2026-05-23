@@ -47,6 +47,7 @@ class NodeCache:
         self._evictions = 0
 
     def get(self, node_id: NodeId) -> Node:
+        self._evict_if_expired(node_id)
         entry = self._entries.get(node_id)
         if entry is not None:
             self._entries.move_to_end(node_id)
@@ -57,6 +58,25 @@ class NodeCache:
         node = self.store.load(node_id)
         self._insert(node_id, node, code=None)
         return node
+
+    def get_code(self, node_id: NodeId) -> str:
+        self._evict_if_expired(node_id)
+        entry = self._entries.get(node_id)
+        if entry is not None and entry.code is not None:
+            self._entries.move_to_end(node_id)
+            entry.last_access = time.monotonic()
+            self._hits += 1
+            return entry.code
+        # need to load code (and node, if not cached)
+        if entry is None:
+            self._misses += 1
+            node = self.store.load(node_id)
+        else:
+            node = entry.node
+            self.invalidate(node_id)  # we'll re-insert with code
+        code = self.store.load_code(node_id)
+        self._insert(node_id, node, code=code)
+        return code
 
     def put(self, node: Node, code: str | None = None) -> None:
         self.store.save(node, code=code)
@@ -87,3 +107,17 @@ class NodeCache:
         entry = _CacheEntry(node=node, code=code, size_bytes=size, last_access=time.monotonic())
         self._entries[node_id] = entry
         self._current_bytes += size
+        self._enforce_budget()
+
+    def _enforce_budget(self) -> None:
+        while self._current_bytes > self.max_bytes and self._entries:
+            oldest_id, oldest_entry = self._entries.popitem(last=False)
+            self._current_bytes -= oldest_entry.size_bytes
+            self._evictions += 1
+
+    def _evict_if_expired(self, node_id: NodeId) -> None:
+        entry = self._entries.get(node_id)
+        if entry is None:
+            return
+        if time.monotonic() - entry.last_access > self.ttl_seconds:
+            self.invalidate(node_id)
