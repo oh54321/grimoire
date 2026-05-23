@@ -12,6 +12,7 @@ ObjectType = Literal["class", "method", "executable"]
 
 
 class TestStatus(Enum):
+    __test__ = False  # tell pytest this isn't a test class
     UNRUN = "unrun"
     PASSING = "passing"
     FAILING = "failing"
@@ -41,6 +42,8 @@ class Test:
 
     `name` matches the pytest function name without the `test_` prefix.
     """
+
+    __test__ = False  # tell pytest this isn't a test class
 
     name: str
     status: TestStatus = TestStatus.UNRUN
