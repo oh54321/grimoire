@@ -1,16 +1,24 @@
 """On-disk node store. Each node lives at <root>/<node_id>/."""
 
 import json
+import keyword
 import os
+import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 
 from library.config import LibraryConfig
-from library.errors import CorruptMetaFile, NodeNotFound
+from library.errors import (
+    CorruptMetaFile,
+    DescriptionTooLong,
+    InvalidNodeName,
+    NodeNotFound,
+)
 from library.ids import NodeId
 from library.nodes import CodeNode, FolderNode, Node, Tag, Test, TestStatus
+from library.tokens import count_tokens
 
 
 def _atomic_write(path: Path, data: str) -> None:
@@ -112,6 +120,7 @@ class NodeStore:
         return path.read_text() if path.exists() else ""
 
     def save(self, node: Node, code: str | None = None, tests: str | None = None) -> None:
+        self._validate(node)
         d = self.node_dir(node.node_id)
         d.mkdir(parents=True, exist_ok=True)
         _atomic_write(d / "meta.json", json.dumps(_node_to_dict(node), indent=2, sort_keys=True))
@@ -119,3 +128,34 @@ class NodeStore:
             _atomic_write(d / "code.py", code)
         if tests is not None:
             _atomic_write(d / "tests.py", tests)
+
+    def delete(self, node_id: NodeId) -> None:
+        if not self.exists(node_id):
+            raise NodeNotFound(node_id)
+        shutil.rmtree(self.node_dir(node_id))
+
+    def iter_ids(self) -> Iterator[NodeId]:
+        for entry in self.root.iterdir():
+            if not entry.is_dir():
+                continue
+            if entry.name == "build":
+                continue
+            if (entry / "meta.json").exists():
+                yield entry.name
+
+    def size_on_disk(self, node_id: NodeId) -> int:
+        if not self.exists(node_id):
+            raise NodeNotFound(node_id)
+        total = 0
+        for f in self.node_dir(node_id).iterdir():
+            if f.is_file():
+                total += f.stat().st_size
+        return total
+
+    def _validate(self, node: Node) -> None:
+        tokens_in_desc = count_tokens(node.description, self.config.tokenizer_encoding)
+        if tokens_in_desc > self.config.max_description_tokens:
+            raise DescriptionTooLong(node.node_id, tokens_in_desc, self.config.max_description_tokens)
+        if isinstance(node, CodeNode):
+            if not node.name.isidentifier() or keyword.iskeyword(node.name):
+                raise InvalidNodeName(node.node_id, node.name)
