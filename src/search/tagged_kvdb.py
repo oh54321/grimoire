@@ -240,6 +240,24 @@ class TaggedKVDatabase(_VectorStoreBase):
             results = self._search_locked(vec, n, tags)
             return PagedList(results, page_size)
 
+    # ---- persistence hooks ---------------------------------------------
+    def _extra_save_data(self) -> dict:
+        return {
+            "id_to_tags": {
+                str(id_): sorted(tags) for id_, tags in self._id_to_tags.items()
+            },
+        }
+
+    def _extra_load_data(self, data: dict) -> None:
+        raw = data.get("id_to_tags", {})
+        self._id_to_tags = {
+            int(k): frozenset(v) for k, v in raw.items()
+        }
+        self._tag_to_ids = {}
+        for id_, tags in self._id_to_tags.items():
+            for t in tags:
+                self._tag_to_ids.setdefault(t, set()).add(id_)
+
     def list_by_tags_paged(
         self,
         tags: Iterable[str],

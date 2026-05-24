@@ -223,3 +223,53 @@ def test_search_paged_validates_args(fake_embedder):
         db.search_paged("q", page_size=0)
     with pytest.raises(ValueError):
         db.search_paged("q", page_size=2, max_pages=0)
+
+
+def test_save_and_load_roundtrip(tmp_path, fake_embedder):
+    path = tmp_path / "store"
+    db = TaggedKVDatabase(path=path, embedder=fake_embedder)
+    db.add("a", "va", tags=["x", "y"])
+    db.add("b", "vb", tags=["y"])
+    db.save()
+
+    db2 = TaggedKVDatabase(path=path, embedder=fake_embedder)
+    assert db2.tags_of("a") == frozenset({"x", "y"})
+    assert db2.tags_of("b") == frozenset({"y"})
+    assert set(db2.list_by_tags(["y"])) == {"va", "vb"}
+    assert set(db2.list_by_tags(["x", "y"])) == {"va"}
+
+
+def test_load_v1_into_tagged_kvdatabase_rejects(tmp_path, fake_embedder):
+    from search import KVDatabase
+
+    path = tmp_path / "store"
+    plain = KVDatabase(path=path, embedder=fake_embedder)
+    plain.add("a", "va")
+    plain.save()
+
+    with pytest.raises(ValueError, match="unsupported store version"):
+        TaggedKVDatabase(path=path, embedder=fake_embedder)
+
+
+def test_load_v2_into_plain_kvdatabase_rejects(tmp_path, fake_embedder):
+    from search import KVDatabase
+
+    path = tmp_path / "store"
+    tagged = TaggedKVDatabase(path=path, embedder=fake_embedder)
+    tagged.add("a", "va", tags=["x"])
+    tagged.save()
+
+    with pytest.raises(ValueError, match="unsupported store version"):
+        KVDatabase(path=path, embedder=fake_embedder)
+
+
+def test_tag_to_ids_rebuilt_after_load_supports_search(tmp_path, fake_embedder):
+    path = tmp_path / "store"
+    db = TaggedKVDatabase(path=path, embedder=fake_embedder)
+    db.add("a", "va", tags=["x"])
+    db.add("b", "vb", tags=["x", "y"])
+    db.save()
+
+    db2 = TaggedKVDatabase(path=path, embedder=fake_embedder)
+    results = db2.search("a", n=10, tags=["x"])
+    assert {v for v, _ in results} == {"va", "vb"}
