@@ -73,11 +73,13 @@ class TaggedKVDatabase(_VectorStoreBase):
             self._add_id_to_tags(new_id, tag_set)
 
     def _add_id_to_tags(self, id_: int, tags: frozenset[str]) -> None:
+        """Must be called under the write lock."""
         self._id_to_tags[id_] = tags
         for t in tags:
             self._tag_to_ids.setdefault(t, set()).add(id_)
 
     def _remove_id_from_tags(self, id_: int) -> None:
+        """Must be called under the write lock."""
         old_tags = self._id_to_tags.pop(id_, frozenset())
         for t in old_tags:
             bucket = self._tag_to_ids.get(t)
@@ -93,7 +95,7 @@ class TaggedKVDatabase(_VectorStoreBase):
             id_ = self._store.phrase_to_id.get(phrase)
             if id_ is None:
                 raise KeyError(phrase)
-            return self._id_to_tags.get(id_, frozenset())
+            return self._id_to_tags[id_]
 
     def all_tags(self) -> set[str]:
         with self._lock.read():
