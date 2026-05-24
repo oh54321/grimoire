@@ -273,3 +273,44 @@ def test_tag_to_ids_rebuilt_after_load_supports_search(tmp_path, fake_embedder):
     db2 = TaggedKVDatabase(path=path, embedder=fake_embedder)
     results = db2.search("a", n=10, tags=["x"])
     assert {v for v, _ in results} == {"va", "vb"}
+
+
+import threading
+
+
+def test_concurrent_readers_and_writer(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    for i in range(50):
+        db.add(f"p{i}", f"v{i}", tags=["t"])
+
+    stop = threading.Event()
+    errors: list[BaseException] = []
+
+    def reader():
+        try:
+            while not stop.is_set():
+                db.search("p0", n=5, tags=["t"])
+                db.list_by_tags(["t"])
+        except BaseException as e:  # pragma: no cover - reported below
+            errors.append(e)
+
+    def writer():
+        try:
+            for i in range(50, 100):
+                db.add(f"p{i}", f"v{i}", tags=["t"])
+        except BaseException as e:  # pragma: no cover - reported below
+            errors.append(e)
+
+    readers = [threading.Thread(target=reader) for _ in range(4)]
+    w = threading.Thread(target=writer)
+    for r in readers:
+        r.start()
+    w.start()
+    w.join()
+    stop.set()
+    for r in readers:
+        r.join()
+
+    assert errors == []
+    assert len(db) == 100
+    assert set(db.list_by_tags(["t"])) == {f"v{i}" for i in range(100)}
