@@ -5,7 +5,7 @@ import pytest
 
 from library.errors import DuplicateNodeId, NodeNotFound
 from library.graph import Graph
-from library.nodes import CodeNode, FolderNode, Tag
+from library.nodes import CodeNode, FolderNode, Tag, Test, TestStatus
 
 
 def test_open_on_empty_root_works(tmp_path: Path):
@@ -95,3 +95,63 @@ def test_config_overrides_persisted_on_open(tmp_path: Path):
     g = Graph.open(tmp_path, max_cache_mb=7)
     g_again = Graph.open(tmp_path)
     assert g_again._config.max_cache_mb == 7
+
+
+def test_ensure_built_via_graph(tmp_path: Path):
+    g = Graph.open(tmp_path)
+    g.add_node(CodeNode(node_id="a", name="f", description="x"), code="def f(): return 1\n")
+    assert g.ensure_built("a") is True
+    assert g.ensure_built("a") is False
+
+
+def test_run_tests_end_to_end_with_dependency(tmp_path: Path):
+    g = Graph.open(tmp_path)
+    g.add_node(
+        CodeNode(node_id="d", name="add_one", description="x"),
+        code="def add_one(x): return x + 1\n",
+    )
+    g.add_node(
+        CodeNode(
+            node_id="p",
+            name="add_two",
+            description="x",
+            dependencies={"d"},
+            tests=[Test(name="basic")],
+        ),
+        code="def add_two(x): return add_one(x) + 1\n",
+        tests="def test_basic(): assert add_two(0) == 2\n",
+    )
+    results = g.run_tests("p")
+    assert len(results) == 1
+    assert results[0].name == "basic"
+    assert results[0].status is TestStatus.PASSING
+
+    # The node's persisted test status should also be updated.
+    updated = g.get("p")
+    assert isinstance(updated, CodeNode)
+    assert updated.tests[0].status is TestStatus.PASSING
+
+
+def test_public_reexports():
+    """Top-level package re-exports the public surface."""
+    import library
+    for name in [
+        "Graph",
+        "Node",
+        "FolderNode",
+        "CodeNode",
+        "Tag",
+        "Test",
+        "TestStatus",
+        "TestResult",
+        "LibraryConfig",
+        "NodeNotFound",
+        "DuplicateNodeId",
+        "DescriptionTooLong",
+        "InvalidNodeName",
+        "MissingDependency",
+        "BuildError",
+        "CorruptMetaFile",
+        "new_node_id",
+    ]:
+        assert hasattr(library, name), f"missing public export: {name}"

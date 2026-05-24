@@ -146,6 +146,27 @@ class Graph:
         self._index.remove(node)
         self._builder.remove(node_id)
 
+    # ----- build + run -----
+
+    def ensure_built(self, node_id: NodeId) -> bool:
+        return self._builder.ensure_built(node_id)
+
+    def run_tests(self, node_id: NodeId) -> list[TestResult]:
+        self.ensure_built(node_id)
+        results = self._runner.run_tests(node_id)
+        # Fold results back into the node's Test list and persist
+        node = self._cache.get(node_id)
+        if isinstance(node, CodeNode):
+            by_name = {r.name: r for r in results}
+            for t in node.tests:
+                r = by_name.get(t.name)
+                if r is not None:
+                    t.status = r.status
+            # Persist updated statuses without rewriting code/tests
+            self._store.save(node)
+            self._cache.invalidate(node_id)
+        return results
+
     # ----- index rebuild -----
 
     def _rebuild_index(self) -> None:
