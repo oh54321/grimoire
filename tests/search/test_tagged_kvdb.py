@@ -194,3 +194,32 @@ def test_search_threshold_zero_uses_hnsw_path(fake_embedder):
     db.add("only", "v", tags=["t"])
     results = db.search("only", n=1, tags=["t"])
     assert results == [("v", pytest.approx(1.0, abs=1e-4))]
+
+
+def test_search_paged_returns_pages(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    for i in range(5):
+        db.add(f"p{i}", f"v{i}", tags=["t"])
+
+    paged = db.search_paged("p0", page_size=2, tags=["t"])
+    assert isinstance(paged, PagedList)
+    assert paged.num_pages == 3
+    assert len(paged.get_page(0)) == 2
+
+
+def test_search_paged_respects_max_pages(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    for i in range(10):
+        db.add(f"p{i}", f"v{i}", tags=["t"])
+
+    paged = db.search_paged("p0", page_size=2, max_pages=2, tags=["t"])
+    assert paged.num_pages == 2
+    assert len(paged) == 4
+
+
+def test_search_paged_validates_args(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    with pytest.raises(ValueError):
+        db.search_paged("q", page_size=0)
+    with pytest.raises(ValueError):
+        db.search_paged("q", page_size=2, max_pages=0)
