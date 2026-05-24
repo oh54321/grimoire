@@ -1,11 +1,13 @@
 from library.ids import NodeId, new_node_id
 
 
-def test_new_node_id_is_12_hex_chars():
+def test_new_node_id_format():
     nid = new_node_id()
     assert isinstance(nid, str)
-    assert len(nid) == 12
-    int(nid, 16)  # must parse as hex
+    assert len(nid) == 13
+    assert nid.startswith("n")
+    assert nid.isidentifier()
+    int(nid[1:], 16)  # remainder must parse as hex
 
 
 def test_new_node_id_no_collisions_in_10000_samples():
