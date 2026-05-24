@@ -5,12 +5,10 @@ import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable
 
 import hnswlib
 import numpy as np
-
-from search.pages import PagedList
 
 JSONValue = None | bool | int | float | str | list | dict
 
@@ -130,9 +128,17 @@ class _VectorStoreBase:
 
     # ---- subclass hooks --------------------------------------------------
     def _extra_save_data(self) -> dict:
+        """Return extra JSON-serialisable keys to merge into the store file.
+
+        Called under the read lock. Must not attempt to acquire the lock.
+        """
         return {}
 
     def _extra_load_data(self, data: dict) -> None:
+        """Consume subclass keys from the loaded JSON dict.
+
+        Called under the write lock. Must not attempt to acquire the lock.
+        """
         return None
 
     # ---- shared helpers --------------------------------------------------
