@@ -117,3 +117,80 @@ def test_list_by_tags_paged_validates_args(fake_embedder):
         db.list_by_tags_paged([], page_size=0)
     with pytest.raises(ValueError):
         db.list_by_tags_paged([], page_size=2, max_pages=0)
+
+
+import numpy as np
+
+
+def test_search_no_filter_matches_kvdatabase_shape(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    db.add("alpha", "va", tags=["x"])
+    db.add("beta", "vb", tags=["y"])
+
+    results = db.search("alpha", n=2)
+    assert results[0][0] == "va"
+    assert results[0][1] == pytest.approx(1.0, abs=1e-4)
+
+
+def test_search_and_filter_restricts_results(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    db.add("a", "va", tags=["x"])
+    db.add("b", "vb", tags=["x", "y"])
+    db.add("c", "vc", tags=["y"])
+
+    results = db.search("a", n=10, tags=["x", "y"])
+    values = {v for v, _ in results}
+    assert values == {"vb"}
+
+
+def test_search_unknown_tag_returns_empty(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    db.add("a", "va", tags=["x"])
+    assert db.search("a", n=5, tags=["nope"]) == []
+
+
+def test_search_empty_db_returns_empty(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    assert db.search("a", n=5) == []
+    assert db.search("a", n=5, tags=["x"]) == []
+
+
+def test_search_n_zero_returns_empty(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    db.add("a", "va", tags=["x"])
+    assert db.search("a", n=0, tags=["x"]) == []
+
+
+def test_search_brute_force_and_hnsw_agree(fake_embedder):
+    def seed(db):
+        for i in range(20):
+            db.add(f"phrase-{i}", f"v{i}", tags=["t"])
+
+    db_bf = TaggedKVDatabase(embedder=fake_embedder, brute_force_threshold=10_000)
+    db_hn = TaggedKVDatabase(embedder=fake_embedder, brute_force_threshold=0)
+    seed(db_bf)
+    seed(db_hn)
+
+    r_bf = db_bf.search("phrase-3", n=5, tags=["t"])
+    r_hn = db_hn.search("phrase-3", n=5, tags=["t"])
+
+    assert [v for v, _ in r_bf] == [v for v, _ in r_hn]
+    for (_, s_bf), (_, s_hn) in zip(r_bf, r_hn):
+        assert s_bf == pytest.approx(s_hn, abs=1e-4)
+
+
+def test_search_results_ordered_by_similarity_descending(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    for i in range(10):
+        db.add(f"p{i}", f"v{i}", tags=["t"])
+
+    results = db.search("p0", n=5, tags=["t"])
+    scores = [s for _, s in results]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_search_threshold_zero_uses_hnsw_path(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder, brute_force_threshold=0)
+    db.add("only", "v", tags=["t"])
+    results = db.search("only", n=1, tags=["t"])
+    assert results == [("v", pytest.approx(1.0, abs=1e-4))]

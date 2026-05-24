@@ -146,6 +146,67 @@ class TaggedKVDatabase(_VectorStoreBase):
         with self._lock.read():
             return self._list_by_tags_locked(tags)
 
+    # ---- vector search --------------------------------------------------
+    def search(
+        self,
+        phrase: str,
+        n: int,
+        tags: Iterable[str] = (),
+    ) -> list[tuple[JSONValue, float]]:
+        vec = self._encode(phrase)
+
+        with self._lock.read():
+            if n <= 0:
+                return []
+
+            allowed = self._intersect_tag_ids(tags)
+            if allowed is not None and not allowed:
+                return []
+
+            live = (
+                len(allowed) if allowed is not None
+                else len(self._store.id_to_value)
+            )
+            if live == 0:
+                return []
+            k = min(n, live)
+
+            use_brute = (
+                allowed is not None
+                and len(allowed) <= self._brute_force_threshold
+            )
+
+            if use_brute:
+                ids = list(allowed)
+                mat = np.asarray(self._index.get_items(ids), dtype=np.float32)
+                mat_norms = np.linalg.norm(mat, axis=1) + 1e-12
+                mat_n = mat / mat_norms[:, None]
+                q_norm = np.linalg.norm(vec) + 1e-12
+                q_n = vec / q_norm
+                sims = mat_n @ q_n
+                if k < len(ids):
+                    top = np.argpartition(-sims, k - 1)[:k]
+                else:
+                    top = np.arange(len(ids))
+                top = top[np.argsort(-sims[top])]
+                return [
+                    (self._store.id_to_value[ids[int(i)]], float(sims[int(i)]))
+                    for i in top
+                ]
+
+            filt = None if allowed is None else (lambda i: i in allowed)
+            self._index.set_num_threads(1)
+            labels, distances = self._index.knn_query(
+                vec.reshape(1, -1), k=k, filter=filt
+            )
+            out: list[tuple[JSONValue, float]] = []
+            for idx, dist in zip(labels[0], distances[0]):
+                idx = int(idx)
+                if idx not in self._store.id_to_value:
+                    continue
+                out.append((self._store.id_to_value[idx], 1.0 - float(dist)))
+            return out
+
     def list_by_tags_paged(
         self,
         tags: Iterable[str],
