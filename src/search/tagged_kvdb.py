@@ -133,14 +133,18 @@ class TaggedKVDatabase(_VectorStoreBase):
         return result
 
     # ---- list-by-tags ---------------------------------------------------
+    def _list_by_tags_locked(self, tags: Iterable[str]) -> list[JSONValue]:
+        """Must be called under the read or write lock."""
+        allowed = self._intersect_tag_ids(tags)
+        if allowed is None:
+            ids = sorted(self._store.id_to_value.keys())
+        else:
+            ids = sorted(allowed)
+        return [self._store.id_to_value[i] for i in ids]
+
     def list_by_tags(self, tags: Iterable[str]) -> list[JSONValue]:
         with self._lock.read():
-            allowed = self._intersect_tag_ids(tags)
-            if allowed is None:
-                ids = sorted(self._store.id_to_value.keys())
-            else:
-                ids = sorted(allowed)
-            return [self._store.id_to_value[i] for i in ids]
+            return self._list_by_tags_locked(tags)
 
     def list_by_tags_paged(
         self,
@@ -154,7 +158,7 @@ class TaggedKVDatabase(_VectorStoreBase):
             raise ValueError("max_pages must be positive or None")
 
         with self._lock.read():
-            items = self.list_by_tags(tags)
+            items = self._list_by_tags_locked(tags)
             if max_pages is not None:
                 items = items[: page_size * max_pages]
             return PagedList(items, page_size)
