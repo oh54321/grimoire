@@ -143,3 +143,68 @@ def test_diamond_dep_visited_once(tmp_path: Path):
     # Both mids reference d. d should be built exactly once and the result reused.
     manifest = json.loads((tmp_path / "build" / "_manifest.json").read_text())
     assert set(manifest.keys()) == {"d", "m1", "m2", "top"}
+
+
+def test_updating_dep_invalidates_dependent(tmp_path: Path):
+    store, _, builder = _setup(tmp_path)
+    store.save(CodeNode(node_id="d", name="leaf", description="x"), code="def leaf(): return 1\n")
+    store.save(
+        CodeNode(node_id="p", name="top", description="x", dependencies={"d"}),
+        code="def top(): return leaf()\n",
+    )
+    builder.ensure_built("p")
+    assert builder.ensure_built("p") is False  # nothing changed
+
+    # Mutate the dep's code on disk via the store (simulating Graph.update_node + invalidate)
+    store.save(CodeNode(node_id="d", name="leaf", description="x"), code="def leaf(): return 2\n")
+    # The cache still holds the old code; invalidate it so cache.get_code re-reads from disk.
+    builder.cache.invalidate("d")
+
+    # Dep's manifest still claims old hash; but `_ensure_built(d)` will rebuild because
+    # its file content differs, then propagate up to p.
+    assert builder.ensure_built("p") is True
+
+
+def test_invalidate_drops_manifest_entry(tmp_path: Path):
+    store, _, builder = _setup(tmp_path)
+    store.save(CodeNode(node_id="a", name="f", description="x"), code="def f(): pass\n")
+    builder.ensure_built("a")
+    builder.invalidate("a")
+    manifest = json.loads((tmp_path / "build" / "_manifest.json").read_text())
+    assert "a" not in manifest
+
+
+def test_remove_drops_manifest_and_files(tmp_path: Path):
+    store, _, builder = _setup(tmp_path)
+    store.save(CodeNode(node_id="a", name="f", description="x"), code="def f(): pass\n", tests="def test_x(): pass\n")
+    builder.ensure_built("a")
+    assert (tmp_path / "build" / "a.py").exists()
+    assert (tmp_path / "build" / "test_a.py").exists()
+
+    builder.remove("a")
+    assert not (tmp_path / "build" / "a.py").exists()
+    assert not (tmp_path / "build" / "test_a.py").exists()
+    manifest = json.loads((tmp_path / "build" / "_manifest.json").read_text())
+    assert "a" not in manifest
+
+
+def test_clean_wipes_build_root(tmp_path: Path):
+    store, _, builder = _setup(tmp_path)
+    store.save(CodeNode(node_id="a", name="f", description="x"), code="def f(): pass\n")
+    builder.ensure_built("a")
+    assert (tmp_path / "build").exists()
+
+    builder.clean()
+    assert not (tmp_path / "build").exists()
+    # After clean, ensure_built must rebuild everything.
+    assert builder.ensure_built("a") is True
+
+
+def test_manifest_persists_across_builder_instances(tmp_path: Path):
+    store, cache, builder = _setup(tmp_path)
+    store.save(CodeNode(node_id="a", name="f", description="x"), code="def f(): pass\n")
+    builder.ensure_built("a")
+
+    # Create a fresh Builder (simulating process restart); it should load the manifest.
+    builder2 = Builder(store, cache, build_root=tmp_path / "build")
+    assert builder2.ensure_built("a") is False
