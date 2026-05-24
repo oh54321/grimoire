@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from search.pages import PagedList
 from search.tagged_kvdb import TaggedKVDatabase
 
 
@@ -62,3 +63,57 @@ def test_contains_and_len(fake_embedder):
     db.add("a", 1, tags=["t"])
     assert "a" in db
     assert len(db) == 1
+
+
+def _seed(db):
+    db.add("a", "va", tags=["x"])
+    db.add("b", "vb", tags=["x", "y"])
+    db.add("c", "vc", tags=["y"])
+    db.add("d", "vd", tags=["x", "y", "z"])
+
+
+def test_list_by_tags_and_semantics(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    _seed(db)
+
+    assert set(db.list_by_tags(["x", "y"])) == {"vb", "vd"}
+    assert set(db.list_by_tags(["x"])) == {"va", "vb", "vd"}
+    assert set(db.list_by_tags(["x", "y", "z"])) == {"vd"}
+
+
+def test_list_by_tags_empty_filter_returns_all(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    _seed(db)
+    assert set(db.list_by_tags([])) == {"va", "vb", "vc", "vd"}
+
+
+def test_list_by_tags_unknown_tag_returns_empty(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    _seed(db)
+    assert db.list_by_tags(["x", "nope"]) == []
+
+
+def test_list_by_tags_is_stable_id_order(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    _seed(db)
+    # b was added before d; both carry x and y
+    assert db.list_by_tags(["x", "y"]) == ["vb", "vd"]
+
+
+def test_list_by_tags_paged(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    _seed(db)
+
+    paged = db.list_by_tags_paged(["x"], page_size=2)
+    assert isinstance(paged, PagedList)
+    assert paged.num_pages == 2
+    assert list(paged.get_page(0)) == ["va", "vb"]
+    assert list(paged.get_page(1)) == ["vd"]
+
+
+def test_list_by_tags_paged_validates_args(fake_embedder):
+    db = TaggedKVDatabase(embedder=fake_embedder)
+    with pytest.raises(ValueError):
+        db.list_by_tags_paged([], page_size=0)
+    with pytest.raises(ValueError):
+        db.list_by_tags_paged([], page_size=2, max_pages=0)

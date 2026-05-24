@@ -7,6 +7,7 @@ from typing import Iterable
 import numpy as np
 
 from search._base import JSONValue, _VectorStoreBase
+from search.pages import PagedList
 
 TAGGED_STORE_VERSION = 2
 DEFAULT_BRUTE_FORCE_THRESHOLD = 1000
@@ -100,3 +101,60 @@ class TaggedKVDatabase(_VectorStoreBase):
     def all_tags(self) -> set[str]:
         with self._lock.read():
             return set(self._tag_to_ids.keys())
+
+    # ---- filter helper --------------------------------------------------
+    def _intersect_tag_ids(self, tags: Iterable[str]) -> set[int] | None:
+        """Return the set of ids matching all `tags` (AND).
+
+        Returns `None` when `tags` is empty (sentinel: no filter). Returns
+        an empty set if any tag is unknown or the intersection is empty.
+        Must be called under the read or write lock.
+        """
+        tag_list = list(tags)
+        for t in tag_list:
+            if not isinstance(t, str):
+                raise TypeError(f"tag must be a string, got {t!r}")
+        if not tag_list:
+            return None
+
+        buckets: list[set[int]] = []
+        for t in tag_list:
+            bucket = self._tag_to_ids.get(t)
+            if bucket is None:
+                return set()
+            buckets.append(bucket)
+
+        buckets.sort(key=len)
+        result = set(buckets[0])
+        for b in buckets[1:]:
+            result &= b
+            if not result:
+                break
+        return result
+
+    # ---- list-by-tags ---------------------------------------------------
+    def list_by_tags(self, tags: Iterable[str]) -> list[JSONValue]:
+        with self._lock.read():
+            allowed = self._intersect_tag_ids(tags)
+            if allowed is None:
+                ids = sorted(self._store.id_to_value.keys())
+            else:
+                ids = sorted(allowed)
+            return [self._store.id_to_value[i] for i in ids]
+
+    def list_by_tags_paged(
+        self,
+        tags: Iterable[str],
+        page_size: int,
+        max_pages: int | None = None,
+    ) -> PagedList[JSONValue]:
+        if page_size <= 0:
+            raise ValueError("page_size must be positive")
+        if max_pages is not None and max_pages <= 0:
+            raise ValueError("max_pages must be positive or None")
+
+        with self._lock.read():
+            items = self.list_by_tags(tags)
+            if max_pages is not None:
+                items = items[: page_size * max_pages]
+            return PagedList(items, page_size)
