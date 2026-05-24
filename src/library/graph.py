@@ -1,86 +1,179 @@
-from dataclasses import dataclass
-import numpy as np
-from typing import Optional, Set, List, Literal
+"""Public facade for the library. Owns the in-memory index plus store/cache/builder/runner."""
+
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-NodeId = str
-ObjectType = Literal['class', 'method', 'executable']
-
-
-class CodeDiskCache:
-    def __init__(self, root_path: Path, max_local_mb: int) -> None:
-        self.root_path = root_path
-        self.local_cache = {}
-        self.max_local_mb = max_local_mb
-    
-    def get_local_cache(self, code_filepath: Path) -> Path:
-        return self.local_cache[code_filepath]
-    
-    def set_local_cache(self, code_filepath: Path, local_cache: Path) -> None:
-        self.local_cache[code_filepath] = local_cache
-    
-    def prune_local_cache(self) -> None:
-        if len(self.local_cache) > self.max_local_mb:
-            self.local_cache.pop(min(self.local_cache.keys(), key=lambda x: self.local_cache[x].size))
-
-@dataclass
-class CodeImplementation:
-    cache_id: NodeId
-    dependencies: Set[NodeId]
-    code_filepath: Path
+from library.builder import Builder
+from library.cache import NodeCache
+from library.config import LibraryConfig
+from library.errors import DuplicateNodeId, NodeNotFound
+from library.ids import NodeId
+from library.nodes import CodeNode, FolderNode, Node
+from library.runner import Runner, TestResult
+from library.store import NodeStore
 
 
 @dataclass
-class Tag:
-    text: str
-    v: np.ndarray
+class _Index:
+    parent: dict[NodeId, NodeId | None] = field(default_factory=dict)
+    children: dict[NodeId, set[NodeId]] = field(default_factory=dict)
+    tags: dict[str, set[NodeId]] = field(default_factory=dict)
+    dependents: dict[NodeId, set[NodeId]] = field(default_factory=dict)
+
+    def add(self, node: Node) -> None:
+        nid = node.node_id
+        self.parent[nid] = node.parent_id
+        self.children.setdefault(nid, set())
+        for tag in node.tags:
+            self.tags.setdefault(tag.text, set()).add(nid)
+        if isinstance(node, FolderNode):
+            self.children[nid] = set(node.children)
+        elif isinstance(node, CodeNode):
+            for dep_id in node.dependencies:
+                self.dependents.setdefault(dep_id, set()).add(nid)
+
+    def remove(self, node: Node) -> None:
+        nid = node.node_id
+        self.parent.pop(nid, None)
+        # remove from parent's children set
+        if node.parent_id and node.parent_id in self.children:
+            self.children[node.parent_id].discard(nid)
+        self.children.pop(nid, None)
+        # remove from tags
+        for tag in node.tags:
+            s = self.tags.get(tag.text)
+            if s is not None:
+                s.discard(nid)
+                if not s:
+                    del self.tags[tag.text]
+        # remove as a dependent everywhere
+        if isinstance(node, CodeNode):
+            for dep_id in node.dependencies:
+                s = self.dependents.get(dep_id)
+                if s is not None:
+                    s.discard(nid)
+                    if not s:
+                        del self.dependents[dep_id]
+        # remove its own dependents entry (now-removed node had dependents pointing at it; those are orphans)
+        self.dependents.pop(nid, None)
 
 
-class Buildable:
-    is_built: bool = False
-    cache_id: NodeId
+class Graph:
+    def __init__(
+        self,
+        store: NodeStore,
+        cache: NodeCache,
+        builder: Builder,
+        runner: Runner,
+        config: LibraryConfig,
+    ) -> None:
+        self._store = store
+        self._cache = cache
+        self._builder = builder
+        self._runner = runner
+        self._config = config
+        self._index = _Index()
+        self._rebuild_index()
 
-    def set_built(self) -> None:
-        self.is_built = True
+    @classmethod
+    def open(cls, root: Path, **config_overrides: Any) -> "Graph":
+        cfg = LibraryConfig.load(root)
+        if config_overrides:
+            from dataclasses import replace
+            cfg = replace(cfg, **config_overrides)
+        cfg.save()
+        store = NodeStore(cfg)
+        cache = NodeCache(store, max_bytes=cfg.max_cache_mb * 1024 * 1024, ttl_seconds=cfg.ttl_seconds)
+        builder = Builder(store, cache, build_root=root / "build")
+        runner = Runner(build_root=root / "build")
+        return cls(store, cache, builder, runner, cfg)
 
-class Node:
-    parent_id: Optional[NodeId]
-    node_type: str
-    name: str
-    description: str
-    tags: Set[Tag]
+    # ----- navigation -----
 
-    def has_parent(self) -> bool:
-        return self.parent_id is not None
+    def children_of(self, node_id: NodeId) -> set[NodeId]:
+        return set(self._index.children.get(node_id, set()))
 
+    def parent_of(self, node_id: NodeId) -> NodeId | None:
+        return self._index.parent.get(node_id)
 
-class FolderNode(Node):
-    children: Set[NodeId]
-    node_type: str = "folder"
+    def find_by_tag(self, tag_text: str) -> set[NodeId]:
+        return set(self._index.tags.get(tag_text, set()))
 
-    def add_child(self, child_id: NodeId) -> None:
-        self.children.add(child_id)
-    
-    def remove_child(self, child_id: NodeId) -> None:
-        self.children.remove(child_id)
+    def dependencies_of(self, node_id: NodeId) -> set[NodeId]:
+        node = self._cache.get(node_id)
+        return set(node.dependencies) if isinstance(node, CodeNode) else set()
 
-class CodeNode(Node, Buildable):
-    dependencies: Set[NodeId]
-    object_type: ObjectType
-    tests: List["Test"]
-    node_type: str = "code"
+    def dependents_of(self, node_id: NodeId) -> set[NodeId]:
+        return set(self._index.dependents.get(node_id, set()))
 
-    def add_dependency(self, dependency_id: NodeId) -> None:
-        self.dependencies.add(dependency_id)
-    
-    def remove_dependency(self, dependency_id: NodeId) -> None:
-        self.dependencies.remove(dependency_id)
+    # ----- node access -----
 
-    def set_built(self) -> None:
-        self.is_built = True
-        for test in self.tests:
-            test.set_built()
+    def get(self, node_id: NodeId) -> Node:
+        return self._cache.get(node_id)
 
-class Test(Buildable):
-    code_node: CodeNode
-    description: str
+    def get_code(self, node_id: NodeId) -> str:
+        return self._cache.get_code(node_id)
+
+    def get_tests(self, node_id: NodeId) -> str:
+        return self._store.load_tests(node_id)
+
+    # ----- mutation -----
+
+    def add_node(self, node: Node, code: str | None = None, tests: str | None = None) -> NodeId:
+        if self._store.exists(node.node_id):
+            raise DuplicateNodeId(node.node_id)
+        self._store.save(node, code=code, tests=tests)
+        self._cache.invalidate(node.node_id)
+        self._index.add(node)
+        return node.node_id
+
+    def update_node(self, node: Node, code: str | None = None, tests: str | None = None) -> None:
+        if not self._store.exists(node.node_id):
+            raise NodeNotFound(node.node_id)
+        old = self._store.load(node.node_id)
+        self._store.save(node, code=code, tests=tests)
+        self._cache.invalidate(node.node_id)
+        self._index.remove(old)
+        self._index.add(node)
+        if code is not None:
+            self._builder.invalidate(node.node_id)
+
+    def remove_node(self, node_id: NodeId) -> None:
+        node = self._store.load(node_id)
+        self._store.delete(node_id)
+        self._cache.invalidate(node_id)
+        self._index.remove(node)
+        self._builder.remove(node_id)
+
+    # ----- build + run -----
+
+    def ensure_built(self, node_id: NodeId) -> bool:
+        return self._builder.ensure_built(node_id)
+
+    def run_tests(self, node_id: NodeId) -> list[TestResult]:
+        self.ensure_built(node_id)
+        results = self._runner.run_tests(node_id)
+        # Fold results back into the node's Test list and persist
+        node = self._cache.get(node_id)
+        if isinstance(node, CodeNode):
+            by_name = {r.name: r for r in results}
+            for t in node.tests:
+                r = by_name.get(t.name)
+                if r is not None:
+                    t.status = r.status
+            # Persist updated statuses without rewriting code/tests
+            self._store.save(node)
+            self._cache.invalidate(node_id)
+        return results
+
+    # ----- index rebuild -----
+
+    def _rebuild_index(self) -> None:
+        self._index = _Index()
+        for nid in self._store.iter_ids():
+            try:
+                node = self._store.load(nid)
+            except Exception:
+                continue
+            self._index.add(node)
