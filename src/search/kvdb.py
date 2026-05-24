@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -64,8 +63,8 @@ class KVDatabase(_VectorStoreBase):
         self,
         phrase: str,
         page_size: int,
-        max_pages: Optional[int] = None,
-    ) -> PagedList[Tuple[JSONValue, float]]:
+        max_pages: int | None = None,
+    ) -> PagedList[tuple[JSONValue, float]]:
         if page_size <= 0:
             raise ValueError("page_size must be positive")
         if max_pages is not None and max_pages <= 0:
