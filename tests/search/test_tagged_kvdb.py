@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from search.pages import PagedList
@@ -117,9 +119,6 @@ def test_list_by_tags_paged_validates_args(fake_embedder):
         db.list_by_tags_paged([], page_size=0)
     with pytest.raises(ValueError):
         db.list_by_tags_paged([], page_size=2, max_pages=0)
-
-
-import numpy as np
 
 
 def test_search_no_filter_matches_kvdatabase_shape(fake_embedder):
@@ -273,9 +272,6 @@ def test_tag_to_ids_rebuilt_after_load_supports_search(tmp_path, fake_embedder):
     db2 = TaggedKVDatabase(path=path, embedder=fake_embedder)
     results = db2.search("a", n=10, tags=["x"])
     assert {v for v, _ in results} == {"va", "vb"}
-
-
-import threading
 
 
 def test_concurrent_readers_and_writer(fake_embedder):

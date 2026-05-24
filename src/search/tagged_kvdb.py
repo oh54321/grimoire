@@ -151,13 +151,16 @@ class TaggedKVDatabase(_VectorStoreBase):
         self,
         vec,
         n: int,
-        tags: Iterable[str] = (),
+        allowed: set[int] | None,
     ) -> list[tuple[JSONValue, float]]:
-        """Must be called under the read or write lock."""
+        """Must be called under the read or write lock.
+
+        `allowed` is the pre-computed tag-filter id set (None = no filter,
+        empty set = no matches).
+        """
         if n <= 0:
             return []
 
-        allowed = self._intersect_tag_ids(tags)
         if allowed is not None and not allowed:
             return []
 
@@ -213,7 +216,8 @@ class TaggedKVDatabase(_VectorStoreBase):
     ) -> list[tuple[JSONValue, float]]:
         vec = self._encode(phrase)
         with self._lock.read():
-            return self._search_locked(vec, n, tags)
+            allowed = self._intersect_tag_ids(tags)
+            return self._search_locked(vec, n, allowed)
 
     def search_paged(
         self,
@@ -237,7 +241,7 @@ class TaggedKVDatabase(_VectorStoreBase):
                 else len(self._store.id_to_value)
             )
             n = live if max_pages is None else min(live, page_size * max_pages)
-            results = self._search_locked(vec, n, tags)
+            results = self._search_locked(vec, n, allowed)
             return PagedList(results, page_size)
 
     # ---- persistence hooks ---------------------------------------------
