@@ -9,7 +9,7 @@ import numpy as np
 from search._base import JSONValue, _VectorStoreBase
 from search.pages import PagedList
 
-TAGGED_STORE_VERSION = 2
+TAGGED_STORE_VERSION = 3
 DEFAULT_BRUTE_FORCE_THRESHOLD = 1000
 
 
@@ -46,17 +46,20 @@ class TaggedKVDatabase(_VectorStoreBase):
         phrase: str,
         value: JSONValue,
         tags: Iterable[str] = (),
+        *,
+        key: str | None = None,
     ) -> None:
         try:
             json.dumps(value)
         except (TypeError, ValueError) as e:
             raise TypeError(f"value not JSON-serialisable: {e}") from e
 
+        identity = phrase if key is None else key
         tag_set = _validate_tags(tags)
         vec = self._encode(phrase)
 
         with self._lock.write():
-            old_id = self._store.phrase_to_id.get(phrase)
+            old_id = self._store.phrase_to_id.get(identity)
             if old_id is not None:
                 self._index.mark_deleted(old_id)
                 del self._store.id_to_value[old_id]
@@ -68,10 +71,21 @@ class TaggedKVDatabase(_VectorStoreBase):
             self._grow_for(new_id)
 
             self._index.add_items(vec.reshape(1, -1), np.array([new_id]))
-            self._store.phrase_to_id[phrase] = new_id
+            self._store.phrase_to_id[identity] = new_id
             self._store.id_to_value[new_id] = value
             self._store.id_to_phrase[new_id] = phrase
             self._add_id_to_tags(new_id, tag_set)
+
+    def delete(self, key: str) -> None:
+        """Remove the entry identified by `key`. No-op if absent."""
+        with self._lock.write():
+            id_ = self._store.phrase_to_id.pop(key, None)
+            if id_ is None:
+                return
+            self._index.mark_deleted(id_)
+            self._store.id_to_value.pop(id_, None)
+            self._store.id_to_phrase.pop(id_, None)
+            self._remove_id_from_tags(id_)
 
     def _add_id_to_tags(self, id_: int, tags: frozenset[str]) -> None:
         """Must be called under the write lock."""
