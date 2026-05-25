@@ -68,3 +68,18 @@ def test_collection_error_raises_build_error(tmp_path: Path):
     builder.ensure_built("a")
     with pytest.raises(BuildError):
         runner.run_tests("a")
+
+
+def test_collection_error_detail_includes_real_cause(tmp_path: Path):
+    """A collection failure must surface the actual exception (last line of the
+    traceback), not just the pytest-internal first frame."""
+    store, _, builder, runner = _wire(tmp_path)
+    store.save(
+        CodeNode(node_id="a", name="f", description="x", tests=[Test(name="x")]),
+        code="def f(): pass\n",
+        tests="import definitely_not_a_real_module_xyz123\n\ndef test_x(): pass\n",
+    )
+    builder.ensure_built("a")
+    with pytest.raises(BuildError) as exc:
+        runner.run_tests("a")
+    assert "definitely_not_a_real_module_xyz123" in exc.value.reason

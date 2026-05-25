@@ -293,7 +293,7 @@ class Workspace:
             return {"ok": False, "reason": "no-session", "detail": session}
         try:
             code = _read_symbol(root, path, symbol)
-        except (OSError, KeyError) as e:
+        except (OSError, KeyError, SyntaxError, ValueError) as e:
             return {"ok": False, "reason": "not-found", "detail": str(e)}
         return {"ok": True, "code": code}
 

@@ -23,6 +23,22 @@ _PREAMBLE_START = "# AUTO-GENERATED IMPORTS — do not edit"
 _PREAMBLE_END = "# END AUTO-GENERATED IMPORTS"
 
 
+def _split_future_imports(source: str) -> tuple[str, str]:
+    """Split `from __future__ import ...` lines out of `source`, returning
+    (future_block, rest). The generated import preamble is inserted between
+    these, since future imports must be the first statement in a module —
+    otherwise the preamble's imports push them down and Python raises
+    `SyntaxError: from __future__ imports must occur at the beginning of the file`."""
+    futures: list[str] = []
+    rest: list[str] = []
+    for line in source.splitlines(keepends=True):
+        (futures if line.lstrip().startswith("from __future__ import") else rest).append(line)
+    block = "".join(futures)
+    if block and not block.endswith("\n"):
+        block += "\n"
+    return block, "".join(rest)
+
+
 def _atomic_write(path: Path, data: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(data)
@@ -236,20 +252,22 @@ class Builder:
     def _compose_built_file(self, dep_nodes: list[CodeNode], code_text: str) -> str:
         if not dep_nodes:
             return code_text
+        futures, body = _split_future_imports(code_text)
         lines = [_PREAMBLE_START]
         for dn in dep_nodes:
             lines.append(f"from build.{dn.node_id} import {dn.name}")
         lines.append(_PREAMBLE_END)
         lines.append("")
-        return "\n".join(lines) + code_text
+        return futures + "\n".join(lines) + body
 
     def _compose_test_file(self, node: CodeNode, dep_nodes: list[CodeNode], tests_text: str) -> str:
+        futures, body = _split_future_imports(tests_text)
         lines = [_PREAMBLE_START, f"from build.{node.node_id} import {node.name}"]
         for dn in dep_nodes:
             lines.append(f"from build.{dn.node_id} import {dn.name}")
         lines.append(_PREAMBLE_END)
         lines.append("")
-        return "\n".join(lines) + tests_text
+        return futures + "\n".join(lines) + body
 
     def _load_manifest(self) -> None:
         path = self.build_root / "_manifest.json"
