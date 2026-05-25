@@ -213,6 +213,47 @@ class Codebase:
                 out.add(nid)
         return out
 
+    def _topo(self, ids: set[str]) -> list[str]:
+        ids = set(ids)
+        ordered: list[str] = []
+        visited: set[str] = set()
+
+        def visit(n: str) -> None:
+            if n in visited:
+                return
+            visited.add(n)
+            node = self._graph.get(n)
+            for dep in getattr(node, "dependencies", set()):
+                if dep in ids:
+                    visit(dep)
+            ordered.append(n)
+
+        for n in ids:
+            visit(n)
+        return ordered
+
+    def rebuild(self, node_id=None) -> RebuildReport:
+        dirty = self.dirty()
+        report = RebuildReport()
+        if node_id is not None:
+            sub = self._subtree_ids(node_id) | {node_id}
+            code_in_sub = {n for n in sub if n in set(self._graph.iter_code_ids())}
+            report.skipped = sorted(code_in_sub - dirty)
+            dirty = dirty & code_in_sub
+        for nid in self._topo(dirty):
+            try:
+                if self._graph.ensure_built(nid):
+                    report.rebuilt.append(nid)
+                self._graph.run_tests(nid)
+            except BuildError:
+                report.failed.append(nid)
+                continue
+            if self._all_passing(self._graph.get(nid)):
+                report.passed.append(nid)
+            else:
+                report.failed.append(nid)
+        return report
+
     def search(self, query, *, page=0, page_size=10, tags=(), folders=(),
                object_types=()) -> SearchPage:
         return self._search.search_page(
