@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from library.runner import _worker_env
+from grimoire.library.runner import _worker_env
 
 
 @dataclass(frozen=True)

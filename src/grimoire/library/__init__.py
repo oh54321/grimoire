@@ -1,7 +1,7 @@
 """HaymanBot library: node graph + disk store + cache + incremental builder."""
 
-from library.config import LibraryConfig
-from library.errors import (
+from grimoire.library.config import LibraryConfig
+from grimoire.library.errors import (
     BuildError,
     CorruptMetaFile,
     DescriptionTooLong,
@@ -10,9 +10,9 @@ from library.errors import (
     MissingDependency,
     NodeNotFound,
 )
-from library.graph import Graph
-from library.ids import NodeId, new_node_id
-from library.nodes import (
+from grimoire.library.graph import Graph
+from grimoire.library.ids import NodeId, new_node_id
+from grimoire.library.nodes import (
     CodeNode,
     FolderNode,
     Node,
@@ -20,7 +20,7 @@ from library.nodes import (
     Test,
     TestStatus,
 )
-from library.runner import TestResult
+from grimoire.library.runner import TestResult
 
 __all__ = [
     "BuildError",

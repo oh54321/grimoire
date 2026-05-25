@@ -1,4 +1,4 @@
-from api.errors import ApiError, ImplementationFailed, InvalidMove
+from grimoire.api.errors import ApiError, ImplementationFailed, InvalidMove
 
 
 def test_implementation_failed_carries_results():

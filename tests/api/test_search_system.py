@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from api.search_system import SearchSystem
+from grimoire.api.search_system import SearchSystem
 
 
 class FakeEmbedder:

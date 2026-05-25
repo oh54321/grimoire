@@ -42,7 +42,7 @@ def fake_embedder() -> FakeEmbedder:
 def real_embedder():
     """Real sentence-transformers embedder. Skips if model can't load."""
     try:
-        from search.embedder import VectorConverter
+        from grimoire.search.embedder import VectorConverter
         emb = VectorConverter()
         emb.encode("warmup")
         return emb

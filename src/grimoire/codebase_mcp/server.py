@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from codebase_mcp.ingest.prompt import build_ingest_prompt
-from codebase_mcp.workspace import Workspace
+from grimoire.codebase_mcp.ingest.prompt import build_ingest_prompt
+from grimoire.codebase_mcp.workspace import Workspace
 
 GUIDANCE = (
     "A personal, test-gated library of reusable code. Workflow: discover/search before "
@@ -31,7 +31,7 @@ TOOL_NAMES = [
 
 
 def build_server(workspace: Workspace) -> FastMCP:
-    app = FastMCP("haymanbot-codebase", instructions=GUIDANCE)
+    app = FastMCP("grimoire", instructions=GUIDANCE)
     for name in TOOL_NAMES:
         app.tool(name=name)(getattr(workspace, name))
 

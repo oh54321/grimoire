@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 import threading
 
-from search import KVDatabase
+from grimoire.search import KVDatabase
 
 
 def test_concurrent_readers_and_writer(fake_embedder):

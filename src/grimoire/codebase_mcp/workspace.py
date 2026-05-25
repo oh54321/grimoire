@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from api.codebase import Codebase
-from api.errors import ApiError, ImplementationFailed, InvalidMove
-from library import BuildError, FolderNode, Node
+from grimoire.api.codebase import Codebase
+from grimoire.api.errors import ApiError, ImplementationFailed, InvalidMove
+from grimoire.library import BuildError, FolderNode, Node
 
-from codebase_mcp.config import McpConfig
-from codebase_mcp.ingest.sandbox import FetchError, Sandbox
-from codebase_mcp.ingest.survey import survey as _survey_fn, read_symbol as _read_symbol
-from codebase_mcp.scratch import ScratchRunner
+from grimoire.codebase_mcp.config import McpConfig
+from grimoire.codebase_mcp.ingest.sandbox import FetchError, Sandbox
+from grimoire.codebase_mcp.ingest.survey import survey as _survey_fn, read_symbol as _read_symbol
+from grimoire.codebase_mcp.scratch import ScratchRunner
 
 _KINDS = {"class", "method", "executable"}
 

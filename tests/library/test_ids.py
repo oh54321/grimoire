@@ -1,4 +1,4 @@
-from library.ids import NodeId, new_node_id
+from grimoire.library.ids import NodeId, new_node_id
 
 
 def test_new_node_id_format():

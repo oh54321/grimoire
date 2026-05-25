@@ -14,10 +14,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import library
-from library.errors import BuildError
-from library.ids import NodeId
-from library.nodes import TestStatus
+import grimoire
+from grimoire.library.errors import BuildError
+from grimoire.library.ids import NodeId
+from grimoire.library.nodes import TestStatus
 
 
 @dataclass
@@ -30,9 +30,10 @@ class TestResult:
 
 
 def _worker_env(store_root: Path) -> dict:
-    """Environment with `library` (src dir) and the store root on PYTHONPATH so
-    both `import library._test_worker` and `import build.X` resolve."""
-    src_dir = str(Path(library.__file__).resolve().parent.parent)
+    """Environment with the src dir (holding the `grimoire` package) and the store
+    root on PYTHONPATH so both `import grimoire.library._test_worker` and
+    `import build.X` resolve."""
+    src_dir = str(Path(grimoire.__file__).resolve().parent.parent)
     env = dict(os.environ)
     parts = [src_dir, str(store_root)]
     if env.get("PYTHONPATH"):
@@ -56,7 +57,7 @@ class _TestWorker:
 
     def _spawn(self) -> None:
         self._proc = subprocess.Popen(
-            [self._python, "-m", "library._test_worker", str(self._store_root)],
+            [self._python, "-m", "grimoire.library._test_worker", str(self._store_root)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
             cwd=str(self._store_root), env=_worker_env(self._store_root), bufsize=1,
         )

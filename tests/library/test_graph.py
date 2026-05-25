@@ -3,9 +3,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from library.errors import DuplicateNodeId, NodeNotFound
-from library.graph import Graph
-from library.nodes import CodeNode, FolderNode, Tag, Test, TestStatus
+from grimoire.library.errors import DuplicateNodeId, NodeNotFound
+from grimoire.library.graph import Graph
+from grimoire.library.nodes import CodeNode, FolderNode, Tag, Test, TestStatus
 
 
 def test_open_on_empty_root_works(tmp_path: Path):
@@ -133,8 +133,8 @@ def test_run_tests_end_to_end_with_dependency(tmp_path: Path):
 
 
 def test_graph_exposes_config(tmp_path):
-    from library.graph import Graph
-    from library.config import LibraryConfig
+    from grimoire.library.graph import Graph
+    from grimoire.library.config import LibraryConfig
     g = Graph.open(tmp_path, min_tests_per_method=2)
     assert isinstance(g.config, LibraryConfig)
     assert g.config.min_tests_per_method == 2
@@ -142,7 +142,7 @@ def test_graph_exposes_config(tmp_path):
 
 def test_public_reexports():
     """Top-level package re-exports the public surface."""
-    import library
+    import grimoire.library as library
     for name in [
         "Graph",
         "Node",
@@ -166,7 +166,7 @@ def test_public_reexports():
 
 
 def test_update_node_keeps_node_in_parent_children(tmp_path: Path):
-    from library.ids import new_node_id
+    from grimoire.library.ids import new_node_id
     g = Graph.open(tmp_path)
     rid = new_node_id()
     g.add_node(FolderNode(node_id=rid, name="root", description="r", parent_id=None))

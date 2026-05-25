@@ -4,14 +4,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from library.builder import Builder
-from library.cache import NodeCache
-from library.config import LibraryConfig
-from library.errors import BuildError, DuplicateNodeId, NodeNotFound
-from library.ids import NodeId
-from library.nodes import CodeNode, FolderNode, Node
-from library.runner import Runner, TestResult
-from library.store import NodeStore
+from grimoire.library.builder import Builder
+from grimoire.library.cache import NodeCache
+from grimoire.library.config import LibraryConfig
+from grimoire.library.errors import BuildError, DuplicateNodeId, NodeNotFound
+from grimoire.library.ids import NodeId
+from grimoire.library.nodes import CodeNode, FolderNode, Node
+from grimoire.library.runner import Runner, TestResult
+from grimoire.library.store import NodeStore
 
 
 @dataclass

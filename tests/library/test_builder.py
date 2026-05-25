@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from library.builder import Builder
-from library.cache import NodeCache
-from library.config import LibraryConfig
-from library.errors import BuildError, MissingDependency
-from library.nodes import CodeNode
-from library.store import NodeStore
+from grimoire.library.builder import Builder
+from grimoire.library.cache import NodeCache
+from grimoire.library.config import LibraryConfig
+from grimoire.library.errors import BuildError, MissingDependency
+from grimoire.library.nodes import CodeNode
+from grimoire.library.store import NodeStore
 
 
 def _setup(tmp_path: Path) -> tuple[NodeStore, NodeCache, Builder]:

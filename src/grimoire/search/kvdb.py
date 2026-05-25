@@ -4,12 +4,12 @@ import json
 
 import numpy as np
 
-from search._base import (
+from grimoire.search._base import (
     JSONValue,
     STORE_VERSION,
     _VectorStoreBase,
 )
-from search.pages import PagedList
+from grimoire.search.pages import PagedList
 
 __all__ = ["KVDatabase", "JSONValue"]
 

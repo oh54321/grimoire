@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from library.cache import NodeCache, CacheStats
-from library.config import LibraryConfig
-from library.nodes import FolderNode, CodeNode
-from library.store import NodeStore
+from grimoire.library.cache import NodeCache, CacheStats
+from grimoire.library.config import LibraryConfig
+from grimoire.library.nodes import FolderNode, CodeNode
+from grimoire.library.store import NodeStore
 
 
 def _store(tmp_path: Path) -> NodeStore:
@@ -83,7 +83,7 @@ def test_ttl_expiry_on_access(tmp_path: Path, monkeypatch):
     cache = NodeCache(store, max_bytes=1_000_000, ttl_seconds=0.1)
 
     fake_time = [0.0]
-    monkeypatch.setattr("library.cache.time.monotonic", lambda: fake_time[0])
+    monkeypatch.setattr("grimoire.library.cache.time.monotonic", lambda: fake_time[0])
 
     cache.get("a")
     fake_time[0] = 5.0  # well past TTL

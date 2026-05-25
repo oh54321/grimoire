@@ -1,5 +1,5 @@
 import pytest
-from api.codebase import Codebase
+from grimoire.api.codebase import Codebase
 from tests.api.test_search_system import FakeEmbedder
 
 

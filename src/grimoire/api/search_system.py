@@ -3,11 +3,11 @@ from __future__ import annotations
 from collections import OrderedDict
 from pathlib import Path
 
-from search.kvdb import KVDatabase
-from search.pages import PagedList
-from search.tagged_kvdb import TaggedKVDatabase
+from grimoire.search.kvdb import KVDatabase
+from grimoire.search.pages import PagedList
+from grimoire.search.tagged_kvdb import TaggedKVDatabase
 
-from api.results import SearchHit, SearchPage, TagHit, TagPage
+from grimoire.api.results import SearchHit, SearchPage, TagHit, TagPage
 
 
 class SearchSystem:
@@ -25,7 +25,7 @@ class SearchSystem:
     def open(cls, index_root, embedder=None) -> "SearchSystem":
         index_root = Path(index_root)
         if embedder is None:
-            from search.embedder import VectorConverter
+            from grimoire.search.embedder import VectorConverter
             embedder = VectorConverter()
         nodes = TaggedKVDatabase(path=index_root / "nodes", embedder=embedder)
         tags = KVDatabase(path=index_root / "tags", embedder=embedder)

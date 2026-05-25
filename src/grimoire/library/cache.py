@@ -5,9 +5,9 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
-from library.ids import NodeId
-from library.nodes import Node
-from library.store import NodeStore, _node_to_dict
+from grimoire.library.ids import NodeId
+from grimoire.library.nodes import Node
+from grimoire.library.store import NodeStore, _node_to_dict
 
 
 @dataclass

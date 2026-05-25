@@ -1,4 +1,4 @@
-from api.results import SearchHit, SearchPage, TagHit, TagPage
+from grimoire.api.results import SearchHit, SearchPage, TagHit, TagPage
 
 
 def _hit(i):

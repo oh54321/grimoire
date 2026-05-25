@@ -1,9 +1,9 @@
-from api.codebase import Codebase
-from api.errors import ApiError, ImplementationFailed, InvalidMove
-from api.results import (
+from grimoire.api.codebase import Codebase
+from grimoire.api.errors import ApiError, ImplementationFailed, InvalidMove
+from grimoire.api.results import (
     ImplementResult, RebuildReport, SearchHit, SearchPage, TagHit, TagPage,
 )
-from api.search_system import SearchSystem
+from grimoire.api.search_system import SearchSystem
 
 __all__ = [
     "ApiError", "Codebase", "ImplementResult", "ImplementationFailed",

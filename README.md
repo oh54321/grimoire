@@ -137,7 +137,7 @@ pip install -e '.[test]'
 pytest -q
 ```
 
-**Layout** — `src/codebase_mcp/` (MCP layer: `Workspace` core + thin FastMCP `server.py`) over `src/api/` (`Codebase` facade), `src/library/` (node store · builder · runner), and `src/search/` (vector index).
+**Layout** — everything lives under one top-level package, `src/grimoire/`: `grimoire/codebase_mcp/` (MCP layer: `Workspace` core + thin FastMCP `server.py`) over `grimoire/api/` (`Codebase` facade), `grimoire/library/` (node store · builder · runner), and `grimoire/search/` (vector index).
 
 ## 🗺️ Roadmap
 

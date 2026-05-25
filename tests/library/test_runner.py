@@ -2,14 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from library.builder import Builder
-from library.cache import NodeCache
-from library.config import LibraryConfig
-from library.errors import BuildError
-from library.nodes import CodeNode, Test
-from library.runner import Runner, TestResult
-from library.nodes import TestStatus
-from library.store import NodeStore
+from grimoire.library.builder import Builder
+from grimoire.library.cache import NodeCache
+from grimoire.library.config import LibraryConfig
+from grimoire.library.errors import BuildError
+from grimoire.library.nodes import CodeNode, Test
+from grimoire.library.runner import Runner, TestResult
+from grimoire.library.nodes import TestStatus
+from grimoire.library.store import NodeStore
 
 
 def _wire(tmp_path: Path) -> tuple[NodeStore, NodeCache, Builder, Runner]:

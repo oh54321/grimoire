@@ -1,6 +1,6 @@
 import pytest
-from api.codebase import Codebase
-from api.errors import ApiError
+from grimoire.api.codebase import Codebase
+from grimoire.api.errors import ApiError
 from tests.api.test_search_system import FakeEmbedder
 
 

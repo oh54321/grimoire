@@ -6,13 +6,13 @@ from typing import Iterable
 
 import numpy as np
 
-from library import (
+from grimoire.library import (
     BuildError, CodeNode, FolderNode, Graph, Node, Tag, Test, TestStatus, new_node_id,
 )
 
-from api.errors import ApiError, ImplementationFailed, InvalidMove
-from api.results import ImplementResult, RebuildReport, SearchPage, TagPage
-from api.search_system import SearchSystem
+from grimoire.api.errors import ApiError, ImplementationFailed, InvalidMove
+from grimoire.api.results import ImplementResult, RebuildReport, SearchPage, TagPage
+from grimoire.api.search_system import SearchSystem
 
 _NO_VEC = np.zeros(0, dtype=float)
 

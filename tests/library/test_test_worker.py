@@ -1,4 +1,4 @@
-from library import Graph, CodeNode, TestStatus, new_node_id
+from grimoire.library import Graph, CodeNode, TestStatus, new_node_id
 
 
 def _impl(g, name, body, tests):

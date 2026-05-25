@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from codebase_mcp.config import McpConfig
-from codebase_mcp.workspace import Workspace
+from grimoire.codebase_mcp.config import McpConfig
+from grimoire.codebase_mcp.workspace import Workspace
 from tests.api.test_search_system import FakeEmbedder
 
 

@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from search.tagged_kvdb import TaggedKVDatabase
+from grimoire.search.tagged_kvdb import TaggedKVDatabase
 
 
 class FakeEmbedder:
