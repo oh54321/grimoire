@@ -171,3 +171,70 @@ class Workspace:
                     "hint": (f"folder is full (cap {cap}). Create a subfolder with make_folder "
                              "and move() related nodes into it, or move some children out, then retry.")}
         return {"ok": False, "reason": e.reason, "node_id": e.node_id, "target_id": e.target_id}
+
+    # ---- refactor ----
+    def make_folder(self, name: str, *, parent: str | None = None, description: str = "",
+                    tags: list[str] | None = None, searchable: bool = True) -> dict:
+        try:
+            nid = self._cb.make_folder(name, parent_id=parent, description=description,
+                                       tags=tuple(tags or ()), searchable=searchable)
+        except InvalidMove as e:
+            return self._invalid_move(e)
+        return {"ok": True, "id": nid}
+
+    def move(self, node_ids, new_parent: str) -> dict:
+        try:
+            self._cb.move(node_ids, new_parent)
+        except InvalidMove as e:
+            return self._invalid_move(e)
+        return {"ok": True}
+
+    def rename(self, node_id: str, new_name: str) -> dict:
+        try:
+            self._cb.rename(node_id, new_name)
+        except ApiError as e:
+            return {"ok": False, "reason": "api-error", "detail": str(e)}
+        return {"ok": True}
+
+    def remove(self, node_id: str) -> dict:
+        try:
+            self._cb.remove(node_id)
+        except ApiError as e:
+            return {"ok": False, "reason": "api-error", "detail": str(e)}
+        return {"ok": True}
+
+    def hide(self, node_id: str) -> dict:
+        self._cb.set_searchable(node_id, False)
+        return {"ok": True, "id": node_id, "searchable": False}
+
+    def show(self, node_id: str) -> dict:
+        self._cb.set_searchable(node_id, True)
+        return {"ok": True, "id": node_id, "searchable": True}
+
+    def health(self) -> dict:
+        cap = self._config.max_folder_children
+        over: list[dict] = []
+
+        def walk(nid: str) -> None:
+            node = self._cb.load(nid)
+            if isinstance(node, FolderNode):
+                n = len(self._cb.children_of(nid))
+                if cap > 0 and n >= cap:
+                    over.append({"id": nid, "name": node.name, "children": n, "cap": cap})
+                for c in self._cb.children_of(nid):
+                    walk(c)
+
+        walk(self._cb.root_id)
+        return {"cap": cap, "over": over}
+
+    # ---- scratch ----
+    def run_scratch(self, code: str, *, deps: list[str] | None = None) -> dict:
+        deps = list(deps or ())
+        try:
+            self._cb.ensure_built(deps)
+        except BuildError as e:
+            return {"ok": False, "reason": "build-error", "detail": str(e)}
+        import_lines = tuple(f"from build.{d} import {self._cb.load(d).name}" for d in deps)
+        r = self._scratch.run(code, import_lines)
+        return {"ok": r.exit_code == 0 and not r.timed_out, "exit_code": r.exit_code,
+                "timed_out": r.timed_out, "stdout": r.stdout, "stderr": r.stderr}
