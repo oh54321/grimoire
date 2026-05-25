@@ -32,3 +32,16 @@ def test_read_missing_symbol_raises(tmp_path):
     root = _mod(tmp_path)
     with pytest.raises(KeyError):
         read_symbol(root, "m.py", "nope")
+
+
+def test_read_class_method(tmp_path):
+    root = tmp_path / "src"
+    root.mkdir()
+    (root / "c.py").write_text(
+        "class Client:\n"
+        "    def send(self, msg):\n"
+        "        return msg\n"
+    )
+    text = read_symbol(root, "c.py", "Client.send")
+    assert text.strip().startswith("def send(self, msg):")
+    assert "class Client" not in text

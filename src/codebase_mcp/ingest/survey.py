@@ -69,7 +69,11 @@ def _is_tool(node: ast.AST) -> bool:
 
 
 def read_symbol(root: Path, rel_path: str, symbol: str | None = None) -> str:
-    """Raw source of a file, or of one top-level symbol ('name' or 'Class.method')."""
+    """Raw source of a file, or of one top-level symbol ('name' or 'Class.method').
+
+    A single-symbol slice begins at the 'def'/'class' keyword; any decorators
+    (e.g. @app.tool()) are not included.
+    """
     path = root / rel_path
     text = path.read_text(errors="ignore")
     if symbol is None:
@@ -81,7 +85,7 @@ def read_symbol(root: Path, rel_path: str, symbol: str | None = None) -> str:
     return ast.get_source_segment(text, node) or ""
 
 
-def _find(scope, parts):
+def _find(scope: ast.AST, parts: list[str]) -> ast.AST | None:
     name, rest = parts[0], parts[1:]
     for node in getattr(scope, "body", []):
         if getattr(node, "name", None) == name:
