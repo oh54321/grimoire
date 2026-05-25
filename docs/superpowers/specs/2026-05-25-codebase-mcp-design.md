@@ -195,3 +195,13 @@ Tools never surface raw tracebacks at the transport. `Workspace` catches `ApiErr
 - A saved (named, re-runnable) scratchpad, if ephemeral runs prove insufficient.
 - Exporting the library to a concrete named-file project tree.
 - Resource/prompt endpoints (this spec is tools-only).
+
+## Revision 2 (2026-05-25): callable-tool vs helper classification (R5)
+
+Each code node records whether it is a **callable tool** (a top-level capability meant to be invoked/reused) or a **helper** (an internal building block), so search can target one or the other. Independent of `searchable` (visibility): a tool may be hidden, a helper may be visible.
+
+- **Data model:** `CodeNode.is_tool: bool = True` (tools by default; mark helpers `is_tool=False`). Persisted in `meta.json` (CodeNode branch), defaulting True for older nodes. Not applicable to folders.
+- **Index:** `Codebase._composite_tags` adds `@tool:true|false` for code nodes only. Toggling is a cheap retag (no re-embed).
+- **Search filter:** `Codebase.search(..., is_tool: bool | None = None)` — when set, adds `@tool:<bool>` to the AND gate (`require_all`): `is_tool=True` returns only tools, `False` only helpers, `None` (default) both.
+- **API:** `define_abstraction`/`add_method`/`add_class`/`add_executable` accept `is_tool=True`; `set_is_tool(node_id, value)` toggles + retags.
+- **MCP:** `define(..., is_tool=True)`, `search(..., is_tool=None)`, `view` shows `is_tool`, and `mark_tool`/`mark_helper` toggles. Guidance: define broadly-useful callables as tools; mark internal building blocks as helpers (often also `searchable=False`).

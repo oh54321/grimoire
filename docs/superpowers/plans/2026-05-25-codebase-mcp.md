@@ -1528,3 +1528,25 @@ Extend the end-to-end test: define a hidden helper (`searchable=False`), define+
 
 ## Task 15 delta — README (R1–R4)
 Document: `discover`/`search` (OR filters, `include_hidden`), `hide`/`show` and `searchable=` on `define`/`make_folder`, the decomposition + folder-management guidance, and the `discover → judge → refine` flow.
+
+---
+
+# Addendum 2 (2026-05-25): callable-tool vs helper classification (R5)
+
+Two tasks, applied after the core MCP. Mirrors the `searchable` work.
+
+## Task R5a — api: `CodeNode.is_tool` + `@tool:` filter
+**Files:** `src/library/nodes.py`, `src/library/store.py`, `src/api/codebase.py`; tests in `tests/library/test_store.py`, `tests/api/test_codebase_is_tool.py` (new).
+- `nodes.py`: add `is_tool: bool = True` to **`CodeNode`** (not Node — folders excluded).
+- `store.py`: in `_node_to_dict` CodeNode branch add `"is_tool": node.is_tool`; in `_dict_to_node` CodeNode branch add `is_tool=d.get("is_tool", True)`.
+- `codebase.py`: `_composite_tags` adds `f"@tool:{str(node.is_tool).lower()}"` only when the node is a `CodeNode`; `define_abstraction` accepts `is_tool: bool = True` and passes it to `CodeNode(...)`; add `set_is_tool(node_id, value)` (set + `update_node` + retag via `update_tags`); `search` accepts `is_tool: bool | None = None` and, when not None, adds `@tool:<bool>` to `require_all`.
+- Tests: define a helper `is_tool=False` and a tool; `search(is_tool=True)` returns only tools, `search(is_tool=False)` only helpers, default returns both; `set_is_tool` toggles; round-trip persistence of `is_tool`; default True for a node whose meta.json lacks the key.
+
+## Task R5b — MCP: define/search/view + mark_tool/mark_helper
+**Files:** `src/codebase_mcp/workspace.py`, `src/codebase_mcp/server.py`; tests append to `tests/codebase_mcp/test_workspace_build.py` and `test_server.py`.
+- `Workspace.define(..., is_tool: bool = True)` → forward to `define_abstraction`.
+- `Workspace.search(..., is_tool: bool | None = None)` → forward to `Codebase.search`.
+- `Workspace.view` includes `"is_tool"` for code nodes.
+- `Workspace.mark_tool(node_id)` / `mark_helper(node_id)` → `set_is_tool(True/False)`, return `{ok, id, is_tool}`.
+- `server.py`: add `"mark_tool"`, `"mark_helper"` to `TOOL_NAMES`; extend GUIDANCE: "Mark broadly-useful callables as tools (default) and internal building blocks as helpers (is_tool=False); search(is_tool=True) finds tools, is_tool=False finds helpers."
+- Tests: define tool + helper via Workspace, `search(is_tool=True/False)` filters correctly; `view` shows is_tool; mark_tool/mark_helper toggle; server registers the two new tools.
