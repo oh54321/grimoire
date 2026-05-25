@@ -156,6 +156,15 @@ class TaggedKVDatabase(_VectorStoreBase):
                 break
         return result
 
+    def _union_tag_ids(self, tags: Iterable[str]) -> set[int]:
+        """Ids having ANY of `tags`. Must be called under a lock."""
+        out: set[int] = set()
+        for t in tags:
+            bucket = self._tag_to_ids.get(t)
+            if bucket:
+                out |= bucket
+        return out
+
     # ---- list-by-tags ---------------------------------------------------
     def _list_by_tags_locked(self, tags: Iterable[str]) -> list[JSONValue]:
         """Must be called under the read or write lock."""
@@ -241,6 +250,27 @@ class TaggedKVDatabase(_VectorStoreBase):
         vec = self._encode(phrase)
         with self._lock.read():
             allowed = self._intersect_tag_ids(tags)
+            return self._search_locked(vec, n, allowed)
+
+    def search_filtered(
+        self,
+        phrase: str,
+        n: int,
+        *,
+        all_tags: Iterable[str] = (),
+        any_groups: Iterable[Iterable[str]] = (),
+    ) -> list[tuple[JSONValue, float]]:
+        """One vector query whose candidates must contain every tag in `all_tags`
+        AND, for each group in `any_groups`, at least one tag from that group.
+        Embeds `phrase` exactly once."""
+        vec = self._encode(phrase)
+        with self._lock.read():
+            allowed = self._intersect_tag_ids(all_tags)   # None when all_tags empty
+            for group in any_groups:
+                group_ids = self._union_tag_ids(group)
+                allowed = group_ids if allowed is None else (allowed & group_ids)
+                if not allowed:
+                    break
             return self._search_locked(vec, n, allowed)
 
     def search_paged(
