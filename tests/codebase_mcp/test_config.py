@@ -26,8 +26,7 @@ def test_env_overrides():
 
 def test_ingest_defaults():
     cfg = McpConfig.from_env({})
-    assert cfg.ingest_root.name == "ingest"
-    assert cfg.ingest_root.parent.name == ".grimoire"
+    assert cfg.ingest_root == Path.home() / ".grimoire" / "ingest"
     assert cfg.ingest_timeout == 60.0
 
 
