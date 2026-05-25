@@ -42,9 +42,14 @@ class Sandbox:
         session = uuid.uuid4().hex[:12]
         dest = self.path(session)
         local = Path(source).expanduser()
-        if local.exists():
+        if local.is_dir():
             self._root.mkdir(parents=True, exist_ok=True)
             shutil.copytree(local, dest, ignore=_IGNORE, symlinks=True)
+        elif local.exists():
+            raise FetchError(
+                f"source is a file, not a directory: {source}. "
+                "Pass its containing directory (ingestion surveys a tree of modules)."
+            )
         elif self._is_url(source):
             self._clone(source, ref, dest)
         else:

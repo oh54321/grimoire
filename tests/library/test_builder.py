@@ -208,3 +208,35 @@ def test_manifest_persists_across_builder_instances(tmp_path: Path):
     # Create a fresh Builder (simulating process restart); it should load the manifest.
     builder2 = Builder(store, cache, build_root=tmp_path / "build")
     assert builder2.ensure_built("a") is False
+
+
+def test_future_import_hoisted_above_preamble_in_built_file(tmp_path: Path):
+    """A node with deps whose code begins with `from __future__ import annotations`
+    must still compile: the future import has to be hoisted above the generated
+    import preamble (future imports must be the first statement in a module)."""
+    store, _, builder = _setup(tmp_path)
+    store.save(CodeNode(node_id="dep", name="add_one", description="x"),
+               code="def add_one(x): return x + 1\n")
+    store.save(
+        CodeNode(node_id="parent", name="add_two", description="x", dependencies={"dep"}),
+        code="from __future__ import annotations\n\ndef add_two(x): return add_one(x) + 1\n",
+    )
+    builder.ensure_built("parent")
+    built = (tmp_path / "build" / "parent.py").read_text()
+    compile(built, "parent.py", "exec")  # must not raise SyntaxError
+    assert built.index("from __future__") < built.index("AUTO-GENERATED")
+
+
+def test_future_import_in_tests_hoisted(tmp_path: Path):
+    """The test file always gets an import preamble, so a node whose tests begin
+    with `from __future__ import annotations` must still compile."""
+    store, _, builder = _setup(tmp_path)
+    store.save(
+        CodeNode(node_id="a", name="f", description="x"),
+        code="def f(): return 1\n",
+        tests="from __future__ import annotations\n\ndef test_f(): assert f() == 1\n",
+    )
+    builder.ensure_built("a")
+    test_file = (tmp_path / "build" / "test_a.py").read_text()
+    compile(test_file, "test_a.py", "exec")  # must not raise SyntaxError
+    assert test_file.index("from __future__") < test_file.index("AUTO-GENERATED")

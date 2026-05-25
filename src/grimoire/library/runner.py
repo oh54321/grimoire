@@ -144,7 +144,13 @@ class Runner:
         for c in report.get("collectors", []):
             if c.get("outcome") == "failed":
                 msg = c.get("longrepr") or "collection failed"
-                raise BuildError(node_id, f"test collection failed: {msg.splitlines()[0]}")
+                # The actual exception is the last line of the traceback; the first
+                # line is usually a pytest-internal frame (e.g. importtestmodule).
+                lines = [ln for ln in msg.splitlines() if ln.strip()]
+                summary = lines[-1].strip() if lines else "collection failed"
+                if summary.startswith("E "):
+                    summary = summary[1:].strip()
+                raise BuildError(node_id, f"test collection failed: {summary}")
         results: list[TestResult] = []
         for t in report.get("tests", []):
             func = t.get("nodeid", "").rsplit("::", 1)[-1]

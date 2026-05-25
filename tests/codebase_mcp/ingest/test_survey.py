@@ -48,3 +48,13 @@ def test_survey_skips_unparseable_py(tmp_path):
     symbols, skipped = survey(root)
     assert symbols == []
     assert any(s.endswith("broken.py") for s in skipped)
+
+
+def test_survey_with_file_path_surveys_that_file(tmp_path):
+    """When `sub` points at a single file, survey that file's symbols rather
+    than returning nothing (rglob on a file yields no children)."""
+    root = _tree(tmp_path)
+    symbols, skipped = survey(root, sub="api.py")
+    quals = {s.qualname for s in symbols}
+    assert "ping" in quals
+    assert "Client.send" in quals

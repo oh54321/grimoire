@@ -26,9 +26,11 @@ def _safe_join(root: Path, rel_path: str) -> Path:
 def survey(root: Path, sub: str | None = None) -> tuple[list[Symbol], list[str]]:
     """Walk Python files under root, returning (symbols, skipped_files)."""
     base = _safe_join(root, sub) if sub else root
+    candidates = ([base] if base.is_file()
+                  else sorted(p for p in base.rglob("*") if p.is_file() and not p.is_symlink()))
     symbols: list[Symbol] = []
     skipped: list[str] = []
-    for path in sorted(p for p in base.rglob("*") if p.is_file() and not p.is_symlink()):
+    for path in candidates:
         rel = str(path.relative_to(root))
         if path.suffix != ".py":
             skipped.append(rel)

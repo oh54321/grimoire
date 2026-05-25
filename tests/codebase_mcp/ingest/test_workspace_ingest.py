@@ -70,3 +70,54 @@ def test_survey_source_with_path_subdir(tmp_path):
     quals = {sym["qualname"] for sym in s["symbols"]}
     assert "inner" in quals
     assert "top" not in quals
+
+
+def test_fetch_source_file_path_returns_structured_error(tmp_path):
+    """fetch_source on a local file (not a dir) returns a structured error,
+    never a raw NotADirectoryError through the MCP layer."""
+    f = tmp_path / "single.py"
+    f.write_text("def lonely():\n    return 1\n")
+    ws = _ws(tmp_path)
+    out = ws.fetch_source(str(f))
+    assert out["ok"] is False
+    assert out["reason"] == "fetch-failed"
+
+
+def test_read_source_malformed_py_with_symbol_returns_error(tmp_path):
+    """read_source(symbol=...) on a syntactically broken .py must return a
+    structured error, not raise SyntaxError."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "broken.py").write_text("def oops(:\n    not valid\n")
+    ws = _ws(tmp_path)
+    f = ws.fetch_source(str(src))
+    out = ws.read_source(f["session"], "broken.py", symbol="oops")
+    assert out["ok"] is False
+    assert out["reason"] == "not-found"
+
+
+def test_read_source_non_python_with_symbol_returns_error(tmp_path):
+    """read_source(symbol=...) on a non-Python file must return a structured
+    error, not raise SyntaxError from ast.parse."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "api.py").write_text("def ping():\n    return True\n")
+    (src / "notes.txt").write_text("just some text, not python\n")
+    ws = _ws(tmp_path)
+    f = ws.fetch_source(str(src))
+    out = ws.read_source(f["session"], "notes.txt", symbol="anything")
+    assert out["ok"] is False
+    assert out["reason"] == "not-found"
+
+
+def test_survey_source_with_file_path_returns_symbols(tmp_path):
+    """survey_source(path=<a file>) surveys that file rather than silently
+    returning an empty symbol list."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "api.py").write_text("def ping():\n    'doc'\n    return True\n")
+    ws = _ws(tmp_path)
+    f = ws.fetch_source(str(src))
+    s = ws.survey_source(f["session"], path="api.py")
+    assert s["ok"] is True
+    assert any(sym["qualname"] == "ping" for sym in s["symbols"])

@@ -151,3 +151,13 @@ def test_fetch_ttl_zero_disables_sweep(tmp_path):
     os.utime(orphan, (old, old))
     sb.fetch(str(_src(tmp_path)))
     assert orphan.exists()                           # ttl<=0 -> never sweep
+
+
+def test_fetch_local_file_path_raises_fetch_error(tmp_path):
+    """A path that exists but is a file (not a directory) must raise FetchError,
+    not leak a raw NotADirectoryError from shutil.copytree."""
+    f = tmp_path / "single.py"
+    f.write_text("def lonely():\n    return 1\n")
+    sb = Sandbox(tmp_path / "ingest")
+    with pytest.raises(FetchError):
+        sb.fetch(str(f))
