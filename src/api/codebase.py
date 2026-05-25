@@ -179,6 +179,40 @@ class Codebase:
         self._graph.remove_node(node_id)
         self._search.remove_node(node_id)
 
+    def define_abstraction(self, name, description, object_type, *,
+                           parent_id=None, dependencies=(), tags=()) -> str:
+        parent_id = parent_id or self._root_id
+        if not isinstance(self._graph.get(parent_id), FolderNode):
+            raise InvalidMove(parent_id, parent_id, "target-not-folder")
+        nid = new_node_id()
+        node = CodeNode(node_id=nid, name=name, description=description,
+                        parent_id=parent_id, tags=self._tagset(tags),
+                        dependencies=set(dependencies), object_type=object_type, tests=[])
+        self._graph.add_node(node)
+        self._attach_to_parent(nid, parent_id)
+        self._index_node(node)
+        return nid
+
+    def add_method(self, name, description, **kw) -> str:
+        return self.define_abstraction(name, description, "method", **kw)
+
+    def add_class(self, name, description, **kw) -> str:
+        return self.define_abstraction(name, description, "class", **kw)
+
+    def add_executable(self, name, description, **kw) -> str:
+        return self.define_abstraction(name, description, "executable", **kw)
+
+    def _all_passing(self, node) -> bool:
+        return bool(node.tests) and all(t.status == TestStatus.PASSING for t in node.tests)
+
+    def dirty(self) -> set[str]:
+        out = set()
+        for nid in self._graph.iter_code_ids():
+            node = self._graph.get(nid)
+            if self._graph.is_build_stale(nid) or not self._all_passing(node):
+                out.add(nid)
+        return out
+
     def search(self, query, *, page=0, page_size=10, tags=(), folders=(),
                object_types=()) -> SearchPage:
         return self._search.search_page(
