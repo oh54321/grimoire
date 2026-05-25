@@ -36,3 +36,16 @@ def test_discard_removes_session(tmp_path):
     assert sb.discard(f.session) is True
     assert not f.root.exists()
     assert sb.discard(f.session) is False   # already gone
+
+
+def test_top_modules_excludes_init_and_includes_packages(tmp_path):
+    src = tmp_path / "proj"
+    (src / "pkg").mkdir(parents=True)
+    (src / "__init__.py").write_text("")
+    (src / "main.py").write_text("x = 1\n")
+    (src / "pkg" / "__init__.py").write_text("")
+    sb = Sandbox(tmp_path / "ingest")
+    f = sb.fetch(str(src))
+    assert "__init__" not in f.top_modules
+    assert "main" in f.top_modules
+    assert "pkg" in f.top_modules

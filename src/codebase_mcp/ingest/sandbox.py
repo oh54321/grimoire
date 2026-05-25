@@ -19,7 +19,7 @@ class Fetched:
     root: Path
     file_count: int        # number of .py files
     looks_like_mcp: bool
-    top_modules: list[str]
+    top_modules: tuple[str, ...]
 
 
 class Sandbox:
@@ -54,9 +54,9 @@ class Sandbox:
     def _describe(self, session: str, dest: Path) -> Fetched:
         py = sorted(dest.rglob("*.py"))
         looks_mcp = any(self._has_marker(p) for p in py)
-        top = sorted({p.stem for p in dest.glob("*.py")}
+        top = sorted(({p.stem for p in dest.glob("*.py")} - {"__init__"})
                      | {p.parent.name for p in dest.glob("*/__init__.py")})
-        return Fetched(session, dest, len(py), looks_mcp, top)
+        return Fetched(session, dest, len(py), looks_mcp, tuple(top))
 
     @staticmethod
     def _has_marker(p: Path) -> bool:
