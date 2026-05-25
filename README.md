@@ -100,6 +100,8 @@ All via environment variables:
 | `GRIMOIRE_MIN_TESTS` | `3` | Minimum passing tests `implement` requires |
 | `GRIMOIRE_MAX_FOLDER_CHILDREN` | `7` | Hard cap per folder; the (N+1)th child is rejected `folder-full` |
 | `GRIMOIRE_SCRATCH_TIMEOUT` | `30` | Seconds before a `run_scratch` run is killed |
+| `GRIMOIRE_INGEST_ROOT` | `~/.grimoire/ingest` | Where the `ingest` prompt's ephemeral source clones live (read-only browse; never imported) |
+| `GRIMOIRE_INGEST_TIMEOUT` | `60` | Seconds before a `fetch_source` git clone is killed |
 
 ## 🛠️ Tools
 
@@ -110,6 +112,7 @@ All via environment variables:
 | **Create & test** | `define` · `implement` *(the gate — code enters only here)* · `dirty` · `rebuild` |
 | **Organize & classify** | `make_folder` · `move` (one or many) · `rename` · `remove` · `hide`/`show` · `mark_tool`/`mark_helper` · `health` |
 | **Scratch** | `run_scratch(code, deps?)` — ephemeral; imports built nodes; never persisted |
+| **Ingest** | `fetch_source` (git URL or local path → ephemeral read-only clone) · `survey_source` (AST symbol list) · `read_source` · `discard_source` — plus the `ingest` prompt that walks the workflow |
 
 ## 🔄 Workflow
 
@@ -138,7 +141,7 @@ pytest -q
 ## 🗺️ Roadmap
 
 - Persist the vector index (currently re-embedded from the store on each open).
-- **Codebase ingestion** — pull source from an external repo into the library as test-gated nodes (`integrate-mcp` = that, pointed at an MCP server's repo).
+- **Codebase ingestion** ✅ — pull source from an external repo or MCP server into the library as test-gated nodes, via the `ingest` prompt (`fetch_source`/`survey_source`/`read_source` → `define`/`implement` → `discard_source`). Deferred hardening: sandbox network/process isolation, and a TTL sweep for abandoned `~/.grimoire/ingest` sessions (cleanup is currently agent-driven via `discard_source`).
 
 ## 📄 License
 
