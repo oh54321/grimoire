@@ -1452,3 +1452,79 @@ git commit -m "docs(mcp): codebase_mcp README + Claude Code registration"
 - **Backward compatibility:** library/api defaults are `0` (off); existing tests must still pass — verified by the regression runs in Tasks 6 and 14.
 - **Naming:** package is `codebase_mcp` (not `mcp`) to avoid shadowing the SDK on `pythonpath=["src"]`.
 - **No new persisted state:** `Workspace`/`ScratchRunner` hold only in-memory/ephemeral state; the node store stays the single source of truth.
+
+---
+
+# Addendum (2026-05-25): revised scope from execution-time feedback
+
+Tasks 1–6 are complete and reviewed. The following revises/extends the remaining tasks per the spec's "Revision (2026-05-25)" section (searchability R1, OR tag matching R2, `discover` pipeline R3, guidance R4). Two new api/library tasks are inserted **before** the `codebase_mcp` package tasks; the Workspace/server/README tasks gain the deltas listed. Original Tasks 8–15 remain the base; apply the deltas on top.
+
+Order: **Task 7 (pyproject)** → **Task A (library searchable)** → **Task B (api searchable + OR search)** → Tasks 8, 9 → **Task 10 + deltas** → **Task 11 + delta** → **Task 12 + deltas** → **Task 13 + deltas** → **Task 14 + delta** → **Task 15 + delta**.
+
+## Task A: `Node.searchable` field + store serialization (R1)
+**Files:** Modify `src/library/nodes.py`, `src/library/store.py`; Test `tests/library/test_nodes.py`, `tests/library/test_store.py`.
+
+- `nodes.py`: add `searchable: bool = True` to the **`Node`** base dataclass (after `tags`). `FolderNode`/`CodeNode` inherit it.
+- `store.py` `_node_to_dict`: add `"searchable": node.searchable` to the base dict.
+- `store.py` `_dict_to_node`: add `searchable=d.get("searchable", True)` to `common` (default True for pre-existing nodes).
+- Tests: a `CodeNode`/`FolderNode` default `searchable is True`; round-trip a node with `searchable=False` through `NodeStore.save`/`load`; an old `meta.json` dict without the key loads as `searchable=True`.
+- Regression: `python -m pytest tests/library -q`. Commit: `feat(library): node searchable flag + persistence`.
+
+## Task B: `Codebase` searchability + OR tag/folder/type search (R1, R2)
+**Files:** Modify `src/api/codebase.py`, `src/api/search_system.py`; Test `tests/api/test_codebase_search.py` (append) + new `tests/api/test_codebase_searchable.py`.
+
+`search_system.py`:
+- `_any_groups(tags, object_types, folders)`: add a `tags` OR group (raw tag texts) when non-empty, alongside the existing `@in:`/`@kind:` groups.
+- `search` and `search_page`: stop passing user `tags` as `all_tags`. Instead pass them via `_any_groups`. Add a `require_all: set[str] = frozenset()` param that becomes `all_tags` (the AND gate). Include `require_all` in the `search_page` cache key.
+
+`codebase.py`:
+- `_composite_tags`: add `f"@searchable:{str(node.searchable).lower()}"`.
+- `define_abstraction`/`make_folder`: accept `searchable: bool = True`, set it on the created node.
+- `set_searchable(node_id, value)`: load node, set `node.searchable`, `graph.update_node(node)`, then `self._search.update_tags(node_id, self._composite_tags(node))` (cheap retag, no re-embed).
+- `search(query, *, page=0, page_size=10, tags=(), folders=(), object_types=(), include_hidden=False)`: compute `require_all = set() if include_hidden else {"@searchable:true"}`; pass `tags`/`folders`/`object_types` through (now OR) and `require_all` to `search_page`.
+
+Tests (`test_codebase_searchable.py`):
+- a node defined `searchable=False` does NOT appear in `search` by default but DOES with `include_hidden=True`;
+- `set_searchable(nid, False)` then `True` toggles its appearance;
+- a hidden node is still usable as a dependency: define helper hidden, define caller depending on it, `implement` both, caller's tests pass;
+- OR semantics: two nodes tagged `["x"]` and `["y"]`; `search(query, tags=["x","y"])` returns **both** (match ≥1), not just nodes having both.
+- Regression: `python -m pytest tests/api tests/library -q`. Commit: `feat(api): searchable gate + OR tag/folder/type filters`.
+
+## Task 10 deltas — Workspace read + `discover` (R2, R3)
+On top of base Task 10:
+- `search(...)` gains `include_hidden: bool = False`, forwarded to `Codebase.search`.
+- `view(...)` includes `"searchable": node.searchable` in both the folder and code branches.
+- Add `discover(query, *, page=0)` returning:
+  ```python
+  {
+    "hits": <plain search hits as in search()>,
+    "candidate_tags": [{"tag":..., "score":...}, ...],          # from search_tags(query)
+    "candidate_folders": [{"id":..., "name":..., "score":...}],  # search(query, object_types=["folder"], include_hidden=True) hits
+    "object_types_present": sorted({h["kind"] for h in hits}),
+    "hint": "If hits look weak, call search(query, tags=[...], folders=[...], object_types=[...]) "
+            "with filters chosen from candidate_tags/candidate_folders. Tag/folder/type filters are OR (match any).",
+  }
+  ```
+- Tests: `discover` returns the four keys; a node tagged + foldered appears in `candidate_tags`/`candidate_folders`; `search(include_hidden=True)` surfaces a hidden node that default search hides.
+
+## Task 11 delta — `define` accepts `searchable` (R1)
+`Workspace.define(...)` gains `searchable: bool = True`, forwarded to `Codebase.define_abstraction`.
+Test: `define("method", "h", "helper", searchable=False)` then default `search` does not return it; `discover`/`search(include_hidden=True)` does.
+
+## Task 12 deltas — hide/show + folder-full hint (R1, R4)
+On top of base Task 12:
+- Add `hide(node_id)` → `set_searchable(node_id, False)`; `show(node_id)` → `set_searchable(node_id, True)`; both return `{"ok": True, "id": node_id, "searchable": <bool>}`.
+- `make_folder(...)` gains `searchable: bool = True`.
+- `_invalid_move` folder-full branch gains a `"hint"`: `"folder is full (cap N). Create a subfolder with make_folder and move() related nodes into it, or move some children out, then retry."` (interpolate the cap).
+- Tests: `hide` then `search` omits it, `show` restores; folder-full result includes a non-empty `hint`.
+
+## Task 13 deltas — server tools + guidance (R3, R4)
+- Add `"discover"`, `"hide"`, `"show"` to `TOOL_NAMES` (full list, alphabetic-ish but grouped is fine): search group = `discover, search, search_tags, list_tags`; read = `view, read_code, read_tests, children, tree`; create = `define, implement, dirty, rebuild`; refactor = `make_folder, move, rename, remove, hide, show, health`; scratch = `run_scratch`.
+- Give the FastMCP server an `instructions=` string (FastMCP supports it) carrying R4 guidance: "Search/discover before writing; reuse existing nodes as dependencies. Decompose into small single-purpose nodes; build internal helpers as separate nodes created with searchable=False and compose them as dependencies. Create folders as needed; when an op returns folder-full, make a subfolder and move related nodes into it, then retry."
+- Test (`test_server.py`) updated so `TOOL_NAMES` includes the three new names and each maps to a `Workspace` method.
+
+## Task 14 delta — integration covers hidden helper + discover (R1, R3)
+Extend the end-to-end test: define a hidden helper (`searchable=False`), define+implement a method depending on it, confirm the helper is absent from default `search` but the method is present, `discover` returns candidates, and `run_scratch` importing the method works.
+
+## Task 15 delta — README (R1–R4)
+Document: `discover`/`search` (OR filters, `include_hidden`), `hide`/`show` and `searchable=` on `define`/`make_folder`, the decomposition + folder-management guidance, and the `discover → judge → refine` flow.
