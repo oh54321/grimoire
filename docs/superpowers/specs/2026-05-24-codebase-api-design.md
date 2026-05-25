@@ -53,10 +53,10 @@ Codebase  ── owns ──▶  Graph         (library: node store + cache + bu
 
 ```
 src/api/
-├── __init__.py        # re-exports: Codebase, SearchHit, TagHit, ImplementResult, RebuildReport, errors
+├── __init__.py        # re-exports: Codebase, SearchHit, TagHit, SearchPage, TagPage, ImplementResult, RebuildReport, errors
 ├── codebase.py        # Codebase facade — owns + coordinates Graph and SearchSystem
 ├── search_system.py   # SearchSystem — owns the node index + tag index; reindex() rebuilds from the store
-├── results.py         # SearchHit, TagHit, ImplementResult, RebuildReport dataclasses
+├── results.py         # SearchHit, TagHit, SearchPage, TagPage, ImplementResult, RebuildReport dataclasses
 └── errors.py          # ApiError, ImplementationFailed, InvalidMove
 
 tests/api/             # mirrors source layout
@@ -93,6 +93,26 @@ class SearchHit:
 class TagHit:
     tag: str
     score: float
+
+@dataclass(frozen=True)
+class SearchPage:
+    hits: list[SearchHit]   # the hits on THIS page (already the lightweight values)
+    page: int               # 0-based index of this page
+    num_pages: int
+    total: int              # total hits across all pages
+    page_size: int
+    query: str
+    def render(self) -> str: ...   # compact text block (see "Rendered pages"); also __str__
+
+@dataclass(frozen=True)
+class TagPage:
+    hits: list[TagHit]
+    page: int
+    num_pages: int
+    total: int
+    page_size: int
+    query: str
+    def render(self) -> str: ...   # compact text block; also __str__
 
 @dataclass
 class ImplementResult:
@@ -146,13 +166,18 @@ class SearchSystem:
     def index_tags(self, real_tags: set[str]) -> None     # adds new real tag texts to the tag vocab
     def update_tags(self, node_id, tags: set[str]) -> None  # rewrite an entry's tag set, NO re-embed
 
-    # query
+    # query — list form (lower-level; used internally and by tests)
     def search(self, query, *, n=10,
                tags: set[str] = frozenset(),              # real tags — AND (must match ALL)
                object_types: set[str] = frozenset(),      # OR — any of these kinds (empty = any)
                folders: set[NodeId] = frozenset(),        # OR — under any of these folders (empty = whole tree)
                ) -> list[SearchHit]
     def search_tags(self, query, *, n=10) -> list[TagHit]
+
+    # query — paged form (primary surface for Claude; see "Paging and rendered pages")
+    def search_page(self, query, *, page=0, page_size=10,
+                    tags=frozenset(), object_types=frozenset(), folders=frozenset()) -> SearchPage
+    def search_tags_page(self, query, *, page=0, page_size=10) -> TagPage
 
     # maintenance — `entries` are (node_id, name, description, kind, composite_tags) tuples;
     # Codebase builds them by walking the node store and computing ancestry from the tree
@@ -170,6 +195,35 @@ class SearchSystem:
 - **OR over several `object_types` and/or `folders`** → run one AND-query per `(folder × type)` combination and merge results by `node_id` keeping the max score, then take the top `n`. Taking the top-`n` from each combination before merging is exact for the union, and both sets are small in practice (≤3 object types; usually one folder), so this is a handful of fast queries.
 
 This needs **no extension to `search` for querying** — it's all native tag AND. The one addition to `TaggedKVDatabase` is **`update_tags(phrase, new_tags)`**, which rewrites an entry's tag maps **without re-encoding the phrase vector** (the existing `add` re-embeds on every call, which would be wasteful for the move/retag path below).
+
+### Paging and rendered pages
+
+Claude works best issuing a query once and flipping through compact pages, so `search_page` / `search_tags_page` are the primary query surface. They reuse the existing `search.pages.PagedList` / `Page` primitives and the stores' existing `search_paged` methods, and add a small result cache so flipping pages never re-embeds or re-queries.
+
+**Caching.** `SearchSystem` holds a bounded LRU (e.g. 16 entries) keyed by `(query, frozenset(tags), frozenset(object_types), frozenset(folders), page_size)`. On a miss it runs the search once (one embedding of `query`) to build a `PagedList[SearchHit]`, caches it, and returns the requested page wrapped in a `SearchPage`. On a hit it just slices out the page — O(1), no embedding, no vector query. The tag side caches `PagedList[TagHit]` the same way.
+
+**Invalidation.** The cache is purely ephemeral and is **cleared on any index mutation** (`index_node`, `remove_node`, `update_tags`, `index_tags`). This keeps it consistent with the single-source-of-truth rule: a stale page can never outlive a write, and the cache holds no authoritative state. An out-of-range `page` raises `IndexError` (from `PagedList.get_page`); page `0` of an empty result is an empty page, not an error.
+
+**Rendered text.** `SearchPage.render()` (and `__str__`) produces a compressed block Claude can read directly — one line of header/footer navigation plus, per hit, the kind, name, a short id to act on, and a truncated description (full text is on the `SearchHit` and via `load`). Illustrative:
+
+```
+query: "rolling window average"  ·  page 1/3  ·  showing 1–10 of 27
+  1. method  rolling_mean      [n3f2a1b9c4d2]  Streaming mean over a fixed-size window.
+  2. class   RingBuffer        [n7a1c0d5e2f8]  Fixed-capacity circular buffer over a list.
+  …
+  (next page: page=1)
+```
+
+`TagPage.render()` is the analogue for tag discovery:
+
+```
+query: "stats"  ·  page 1/2  ·  showing 1–10 of 14
+  1. statistics    (0.82)
+  2. aggregation   (0.71)
+  …
+```
+
+Descriptions are truncated to a fixed width in the rendering only (the structured `hits` keep the full text). This gives Claude a discover-then-filter-then-page loop entirely in compact text, falling back to `load(node_id)` when it wants the full node.
 
 ## `Codebase`
 
@@ -201,9 +255,10 @@ class Codebase:
     # ---- (d) incremental rebuild ----
     def rebuild(self, node_id=None) -> RebuildReport
 
-    # ---- (e) navigation ----
-    def search(self, query, *, n=10, tags=(), folders=(), object_types=()) -> list[SearchHit]
-    def search_tags(self, query, *, n=10) -> list[TagHit]
+    # ---- (e) navigation — paged, returns rendered-able pages ----
+    def search(self, query, *, page=0, page_size=10,
+               tags=(), folders=(), object_types=()) -> SearchPage
+    def search_tags(self, query, *, page=0, page_size=10) -> TagPage
 
     # ---- access / introspection (discovery helpers Claude uses to compose filters) ----
     def load(self, node_id) -> Node                  # delegates to Graph.get
@@ -261,8 +316,8 @@ def dirty(self) -> set[NodeId]:
 
 ### Navigation (point e)
 
-- `search(query, *, n, tags, folders, object_types)`: a thin pass-through to `SearchSystem.search(query, n=n, tags=set(tags), object_types=set(object_types), folders=set(folders))`. `SearchSystem` translates the filters into composite tags (`@in:<folder>`, `@kind:<type>`) and runs native AND queries — one query for the single-folder/single-type case, a small union of queries for OR over several. Real tags are AND, folders and types are OR. Returns lightweight `SearchHit`s. No Graph lookup at query time (ancestry is already in the tags).
-- `search_tags(query, *, n)`: straight pass-through to `SearchSystem.search_tags` — vector search over the real-tag vocabulary, returning `TagHit`s to feed back into `search(tags=...)`. The discover-then-filter loop (`search_tags` → `list_tags`/`children_of` → `search`) is the primary way Claude narrows to a precise tool without scanning the codebase.
+- `search(query, *, page, page_size, tags, folders, object_types)`: a thin pass-through to `SearchSystem.search_page(...)`. `SearchSystem` translates the filters into composite tags (`@in:<folder>`, `@kind:<type>`) and runs native AND queries — one query for the single-folder/single-type case, a small union of queries for OR over several — building (and caching) a `PagedList[SearchHit]`, then returns the requested `SearchPage`. Real tags are AND, folders and types are OR. No Graph lookup at query time (ancestry is already in the tags); re-embeds only on the first page of a new query/filter combination.
+- `search_tags(query, *, page, page_size)`: pass-through to `SearchSystem.search_tags_page` — paged vector search over the real-tag vocabulary, returning a `TagPage` to feed back into `search(tags=...)`. The loop `search_tags` → `list_tags`/`children_of` → `search` (flipping pages by `page=`) is the primary way Claude narrows to a precise tool without scanning the codebase, reading everything as compact rendered text.
 
 ## Errors (`api/errors.py`)
 
@@ -288,6 +343,7 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 - **Lockstep mutation.** `Codebase` updates `Graph` then `SearchSystem` on every change. Each underlying write is atomic (tmp + `os.replace`). A crash between the two writes leaves the index stale relative to the store; because the store is truth and the index is regenerable, `reindex()` repairs it without data loss. `open` triggers a reindex when the indices are empty but nodes exist.
 - **No hot-loop embedding.** Embedding happens only when a node's `phrase` (description) first appears or its name changes — on `define_abstraction` and `rename`. `implement`/`rebuild` never embed, and `move` re-tags via `update_tags` **without** re-embedding. The implement/iterate loop is incremental-build + test-run only.
 - **Exact filtering via native tags.** Folder/type/tag filters are composite tags answered by the store's native AND path (exact brute force under threshold); OR over several folders/types is an exact union of per-combination queries. No post-truncation, no query-time Graph lookup.
+- **Paged result cache.** Flipping pages of one query is O(1) and embeds nothing — the first page builds and caches the full `PagedList`; later pages slice it. The cache is a small ephemeral LRU cleared on any index mutation, so it holds no authoritative state and never serves a page that predates a write.
 - **Honest cost.** The dominant latency in `implement`/`rebuild` is pytest's subprocess startup in the existing `Runner` (hundreds of ms per node), not the build or the search. An in-process / long-lived pytest worker is future work (already noted in the library spec).
 
 ## Testing
@@ -299,7 +355,8 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 - **`test_codebase_implement.py`** — `define_abstraction` yields a node that is `dirty()` and searchable with no code; `implement` with passing tests commits and clears dirty; `implement` with a failing test reverts (node back to abstraction-only / prior code), raises `ImplementationFailed` with results, and leaves the node dirty; re-`implement` after a fix commits; a dependency change marks the dependent dirty.
 - **`test_codebase_rebuild.py`** — `rebuild` regenerates only dirty nodes (clean ones land in `skipped`); a dependency edit then `rebuild` re-tests dependents; failing nodes appear in `failed` and stay dirty (no revert); subtree-scoped `rebuild(node_id)`.
 - **`test_search_system.py`** — `index_node`/`remove_node` round-trip with composite tags; `search` real-tag-AND vs folder/type-OR semantics; the single-folder/single-type case is one query, OR cases union exactly; `@`-prefixed real tags are rejected; `list_tags` excludes synthetics; `search_tags` ranks related tags; `reindex` rebuilds both indices from an entry list; hits carry name/kind/description without loading nodes.
-- **`test_codebase_search.py`** — end-to-end: define a few abstractions in nested folders with tags, then `search` with combinations of `tags` / `folders` / `object_types`; folder filter respects subtree membership (descendant matches `@in:<ancestor>`); `search_tags` → `list_tags` → `search(tags=...)` discover-then-filter loop.
+- **`test_search_paging.py`** — `search_page`/`search_tags_page` return correct page slices, `num_pages`/`total`; flipping pages of one query embeds exactly once (assert via a counting fake embedder); out-of-range page raises `IndexError`; empty result is page 0 with no hits; any index mutation clears the cache so the next page reflects the change; `SearchPage.render()`/`TagPage.render()` include kind/name/id/truncated-description and page navigation, and round-trip the listed `node_id`s.
+- **`test_codebase_search.py`** — end-to-end: define a few abstractions in nested folders with tags, then `search` with combinations of `tags` / `folders` / `object_types`; folder filter respects subtree membership (descendant matches `@in:<ancestor>`); `search_tags` → `list_tags` → `search(tags=...)` discover-then-filter loop across pages.
 - **`test_update_tags.py`** (in `tests/search/`) — the new `TaggedKVDatabase.update_tags` rewrites an entry's tag set, leaves its vector untouched (no re-embed: same phrase still searches identically), and updates tag-filtered results accordingly.
 
 ## Future work (explicitly not in this spec)
