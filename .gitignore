@@ -12,3 +12,6 @@ venv/
 
 # design docs (specs/plans) kept local, not published
 docs/
+
+# editor settings
+.vscode/
