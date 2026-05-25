@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -259,11 +258,6 @@ class Codebase:
         node = self._graph.get(node_id)
         if not isinstance(node, CodeNode):
             raise ApiError(f"{node_id} is not a code node")
-        # Clear __pycache__ so the warm pytest worker picks up the new code
-        # rather than serving stale bytecode from a prior trial in this session.
-        _pycache = self._root / "build" / "__pycache__"
-        if _pycache.exists():
-            shutil.rmtree(_pycache, ignore_errors=True)
         results = self._graph.trial_run(node_id, code, tests)
         passing = bool(results) and all(r.status == TestStatus.PASSING for r in results)
         if not passing:

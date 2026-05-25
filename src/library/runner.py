@@ -38,6 +38,7 @@ def _worker_env(store_root: Path) -> dict:
     if env.get("PYTHONPATH"):
         parts.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(parts)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
 
 
