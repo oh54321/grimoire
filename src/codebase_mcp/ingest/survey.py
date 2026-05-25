@@ -66,3 +66,24 @@ def _is_tool(node: ast.AST) -> bool:
         if name == "tool":
             return True
     return False
+
+
+def read_symbol(root: Path, rel_path: str, symbol: str | None = None) -> str:
+    """Raw source of a file, or of one top-level symbol ('name' or 'Class.method')."""
+    path = root / rel_path
+    text = path.read_text(errors="ignore")
+    if symbol is None:
+        return text
+    tree = ast.parse(text)
+    node = _find(tree, symbol.split("."))
+    if node is None:
+        raise KeyError(f"symbol not found: {symbol}")
+    return ast.get_source_segment(text, node) or ""
+
+
+def _find(scope, parts):
+    name, rest = parts[0], parts[1:]
+    for node in getattr(scope, "body", []):
+        if getattr(node, "name", None) == name:
+            return _find(node, rest) if rest else node
+    return None
