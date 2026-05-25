@@ -57,3 +57,35 @@ def test_cap_off_allows_many_children(tmp_path):
     for i in range(5):
         cb.make_folder(f"f{i}")
     assert len(cb.children_of(cb.root_id)) == 5
+
+
+def test_move_many_into_folder(tmp_path):
+    cb = _open(tmp_path)
+    dest = cb.make_folder("dest")
+    a = cb.make_folder("a")
+    b = cb.make_folder("b")
+    cb.move([a, b], dest)
+    assert cb.children_of(dest) == {a, b}
+
+
+def test_batch_move_over_cap_is_all_or_nothing(tmp_path):
+    cb = _open(tmp_path, max_folder_children=3)
+    dest = cb.make_folder("dest")          # root: 1 child
+    s1 = cb.make_folder("s1")              # root: 2
+    s2 = cb.make_folder("s2")              # root: 3 (at cap, allowed)
+    a = cb.add_method("a", "x", parent_id=s1)
+    b = cb.add_method("b", "x", parent_id=s1)   # s1: 2
+    c = cb.add_method("c", "x", parent_id=s2)
+    d = cb.add_method("d", "x", parent_id=s2)   # s2: 2
+    with pytest.raises(InvalidMove) as ei:
+        cb.move([a, b, c, d], dest)        # dest would hold 4 > 3
+    assert ei.value.reason == "folder-full"
+    assert cb.children_of(dest) == set()   # nothing moved
+
+
+def test_single_move_still_works(tmp_path):
+    cb = _open(tmp_path)
+    a = cb.make_folder("a")
+    b = cb.make_folder("b")
+    cb.move(a, b)
+    assert a in cb.children_of(b)

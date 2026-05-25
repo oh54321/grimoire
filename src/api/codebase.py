@@ -167,23 +167,29 @@ class Codebase:
         self._index_node(folder)
         return nid
 
-    def move(self, node_id, new_parent_id) -> None:
-        if node_id == self._root_id:
-            raise InvalidMove(node_id, new_parent_id, "move-root")
+    def move(self, node_ids, new_parent_id) -> None:
+        ids = [node_ids] if isinstance(node_ids, str) else list(node_ids)
         if not isinstance(self._graph.get(new_parent_id), FolderNode):
-            raise InvalidMove(node_id, new_parent_id, "target-not-folder")
-        if new_parent_id == node_id or new_parent_id in self._subtree_ids(node_id):
-            raise InvalidMove(node_id, new_parent_id, "into-own-subtree")
-        node = self._graph.get(node_id)
-        old_parent = node.parent_id
-        if old_parent is not None:
-            self._detach_from_parent(node_id, old_parent)
-        node.parent_id = new_parent_id
-        self._graph.update_node(node)
-        self._attach_to_parent(node_id, new_parent_id)
-        # re-tag moved node + descendants (their @in: ancestry changed); no re-embed
-        for nid in [node_id, *self._subtree_ids(node_id)]:
-            self._search.update_tags(nid, self._composite_tags(self._graph.get(nid)))
+            raise InvalidMove(new_parent_id, new_parent_id, "target-not-folder")
+        # validate every move before mutating anything (all-or-nothing)
+        for nid in ids:
+            if nid == self._root_id:
+                raise InvalidMove(nid, new_parent_id, "move-root")
+            if new_parent_id == nid or new_parent_id in self._subtree_ids(nid):
+                raise InvalidMove(nid, new_parent_id, "into-own-subtree")
+        existing = self._graph.children_of(new_parent_id)
+        incoming = [nid for nid in ids if nid not in existing]
+        self._check_capacity(new_parent_id, adding=len(incoming))
+        for nid in ids:
+            node = self._graph.get(nid)
+            old_parent = node.parent_id
+            if old_parent is not None:
+                self._detach_from_parent(nid, old_parent)
+            node.parent_id = new_parent_id
+            self._graph.update_node(node)
+            self._attach_to_parent(nid, new_parent_id)
+            for sub in [nid, *self._subtree_ids(nid)]:
+                self._search.update_tags(sub, self._composite_tags(self._graph.get(sub)))
 
     def rename(self, node_id, new_name) -> None:
         node = self._graph.get(node_id)
