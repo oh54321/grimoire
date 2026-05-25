@@ -74,3 +74,9 @@ def test_node_equality_includes_node_id():
     a = FolderNode(node_id="1", name="x", description="x")
     b = FolderNode(node_id="2", name="x", description="x")
     assert a != b
+
+
+def test_nodes_default_searchable_true():
+    from library.nodes import CodeNode, FolderNode
+    assert CodeNode(node_id="c", name="foo", description="d").searchable is True
+    assert FolderNode(node_id="f", name="grp", description="d").searchable is True

@@ -56,6 +56,7 @@ class Node:
     description: str
     parent_id: NodeId | None = None
     tags: set[Tag] = field(default_factory=set)
+    searchable: bool = True
 
 
 @dataclass
