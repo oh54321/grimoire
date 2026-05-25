@@ -70,4 +70,5 @@ class CodeNode(Node):
     dependencies: set[NodeId] = field(default_factory=set)
     object_type: ObjectType = "method"
     tests: list[Test] = field(default_factory=list)
+    is_tool: bool = True
     node_type: ClassVar[str] = "code"

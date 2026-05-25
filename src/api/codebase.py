@@ -69,6 +69,8 @@ class Codebase:
         tags.add(f"@searchable:{str(node.searchable).lower()}")
         for anc in self._ancestors(node.node_id):
             tags.add(f"@in:{anc}")
+        if isinstance(node, CodeNode):
+            tags.add(f"@tool:{str(node.is_tool).lower()}")
         return tags
 
     def _index_node(self, node: Node) -> None:
@@ -216,7 +218,7 @@ class Codebase:
 
     def define_abstraction(self, name, description, object_type, *,
                            parent_id=None, dependencies=(), tags=(),
-                           searchable: bool = True) -> str:
+                           searchable: bool = True, is_tool: bool = True) -> str:
         parent_id = parent_id or self._root_id
         if not isinstance(self._graph.get(parent_id), FolderNode):
             raise InvalidMove(parent_id, parent_id, "target-not-folder")
@@ -225,7 +227,7 @@ class Codebase:
         node = CodeNode(node_id=nid, name=name, description=description,
                         parent_id=parent_id, tags=self._tagset(tags),
                         dependencies=set(dependencies), object_type=object_type, tests=[],
-                        searchable=searchable)
+                        searchable=searchable, is_tool=is_tool)
         self._graph.add_node(node)
         self._attach_to_parent(nid, parent_id)
         self._index_node(node)
@@ -320,9 +322,19 @@ class Codebase:
         self._graph.update_node(node)
         self._search.update_tags(node_id, self._composite_tags(node))
 
+    def set_is_tool(self, node_id: str, value: bool) -> None:
+        node = self._graph.get(node_id)
+        if not isinstance(node, CodeNode):
+            raise ApiError(f"{node_id} is not a code node")
+        node.is_tool = bool(value)
+        self._graph.update_node(node)
+        self._search.update_tags(node_id, self._composite_tags(node))
+
     def search(self, query, *, page=0, page_size=10, tags=(), folders=(),
-               object_types=(), include_hidden=False) -> SearchPage:
+               object_types=(), include_hidden=False, is_tool: bool | None = None) -> SearchPage:
         require_all = set() if include_hidden else {"@searchable:true"}
+        if is_tool is not None:
+            require_all.add(f"@tool:{str(is_tool).lower()}")
         return self._search.search_page(
             query, page=page, page_size=page_size, tags=set(tags),
             object_types=set(object_types), folders=set(folders), require_all=require_all)
