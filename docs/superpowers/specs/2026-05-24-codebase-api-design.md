@@ -188,13 +188,20 @@ class SearchSystem:
 
 ### Filtering via native AND tags (no post-filter, exact)
 
-`search` composes the filter entirely from tags:
+`search` composes the filter as a **conjunction of disjunctions** (CNF) over tags and runs it as **one** vector query — one embedding, one search, no matter how many folders or types:
 
-- **real `tags`** → added to the AND set directly.
-- **one `object_type` + one `folder`** → add `@kind:<type>` and `@in:<folder>` to the same AND set: a single native `TaggedKVDatabase.search(query, n, tags=…)` call. Exact, HNSW-fast, no scan.
-- **OR over several `object_types` and/or `folders`** → run one AND-query per `(folder × type)` combination and merge results by `node_id` keeping the max score, then take the top `n`. Taking the top-`n` from each combination before merging is exact for the union, and both sets are small in practice (≤3 object types; usually one folder), so this is a handful of fast queries.
+```
+must match ALL of:  real_tags                              (AND)
+                    {@in:f1, @in:f2, …}  if folders given   (OR within the group)
+                    {@kind:t1, @kind:t2, …} if types given  (OR within the group)
+```
 
-This needs **no extension to `search` for querying** — it's all native tag AND. The one addition to `TaggedKVDatabase` is **`update_tags(phrase, new_tags)`**, which rewrites an entry's tag maps **without re-encoding the phrase vector** (the existing `add` re-embeds on every call, which would be wasteful for the move/retag path below).
+The candidate id set is computed from the store's tag→id buckets with plain set operations (intersect the AND tags' buckets, intersect with the union of each OR group's buckets), then a single vector search ranks that candidate set. For the common single-folder/single-type case the groups are singletons and it's an ordinary AND query. Results are exact: under the store's `brute_force_threshold` the candidate set is ranked by exact brute-force cosine; above it, HNSW with a membership filter.
+
+This needs two small, principled additions to `TaggedKVDatabase`, both public (the api layer never touches privates):
+
+- **`update_tags(phrase, new_tags)`** — rewrite an entry's tag maps **without re-encoding the phrase vector** (the existing `add` re-embeds on every call, wasteful for the move/retag path below).
+- **`search_filtered(phrase, n, *, all_tags=(), any_groups=())`** — one query whose candidates must contain every tag in `all_tags` and, for each group in `any_groups`, at least one tag from that group. Embeds the phrase once and runs the existing exact/HNSW path over the computed candidate set. (`any_groups=()` makes it identical to today's `search`.) **Critically, the query is embedded exactly once per call** — this is what keeps OR-filtered search as fast as a plain one.
 
 ### Paging and rendered pages
 
@@ -316,7 +323,7 @@ def dirty(self) -> set[NodeId]:
 
 ### Navigation (point e)
 
-- `search(query, *, page, page_size, tags, folders, object_types)`: a thin pass-through to `SearchSystem.search_page(...)`. `SearchSystem` translates the filters into composite tags (`@in:<folder>`, `@kind:<type>`) and runs native AND queries — one query for the single-folder/single-type case, a small union of queries for OR over several — building (and caching) a `PagedList[SearchHit]`, then returns the requested `SearchPage`. Real tags are AND, folders and types are OR. No Graph lookup at query time (ancestry is already in the tags); re-embeds only on the first page of a new query/filter combination.
+- `search(query, *, page, page_size, tags, folders, object_types)`: a thin pass-through to `SearchSystem.search_page(...)`. `SearchSystem` translates the filters into a single CNF tag query (`all_tags` = real tags; `any_groups` = the `@in:` folder group and/or the `@kind:` type group) via `search_filtered`, building (and caching) a `PagedList[SearchHit]`, then returns the requested `SearchPage`. Real tags are AND, folders and types are OR. `page_size` is per call, so Claude chooses how many results per page. One embedding and one vector search per query; no Graph lookup at query time; page flips re-use the cached `PagedList`.
 - `search_tags(query, *, page, page_size)`: pass-through to `SearchSystem.search_tags_page` — paged vector search over the real-tag vocabulary, returning a `TagPage` to feed back into `search(tags=...)`. The loop `search_tags` → `list_tags`/`children_of` → `search` (flipping pages by `page=`) is the primary way Claude narrows to a precise tool without scanning the codebase, reading everything as compact rendered text.
 
 ## Errors (`api/errors.py`)
@@ -342,7 +349,8 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 - **Single source of truth.** Only the node store is authoritative. The manifest and indices are regenerable; `reindex()` and deleting `build/` recover them. No fourth state file exists to diverge.
 - **Lockstep mutation.** `Codebase` updates `Graph` then `SearchSystem` on every change. Each underlying write is atomic (tmp + `os.replace`). A crash between the two writes leaves the index stale relative to the store; because the store is truth and the index is regenerable, `reindex()` repairs it without data loss. `open` triggers a reindex when the indices are empty but nodes exist.
 - **No hot-loop embedding.** Embedding happens only when a node's `phrase` (description) first appears or its name changes — on `define_abstraction` and `rename`. `implement`/`rebuild` never embed, and `move` re-tags via `update_tags` **without** re-embedding. The implement/iterate loop is incremental-build + test-run only.
-- **Exact filtering via native tags.** Folder/type/tag filters are composite tags answered by the store's native AND path (exact brute force under threshold); OR over several folders/types is an exact union of per-combination queries. No post-truncation, no query-time Graph lookup.
+- **One embed, one search per query.** A search embeds the query exactly once (~5–30 ms CPU) and runs a single vector search; CNF tag filtering (AND of OR-groups) computes the candidate set with set ops over tag buckets, so OR-over-folders/types costs no extra embeddings or queries. The model lazy-loads once (~1–2 s) on the first query of a process, then stays warm.
+- **Exact filtering via native tags.** Folder/type/tag filters are composite tags; the candidate set is ranked by exact brute-force cosine under `brute_force_threshold` (covers expected corpus sizes), HNSW-with-filter above it. No post-truncation, no query-time Graph lookup.
 - **Paged result cache.** Flipping pages of one query is O(1) and embeds nothing — the first page builds and caches the full `PagedList`; later pages slice it. The cache is a small ephemeral LRU cleared on any index mutation, so it holds no authoritative state and never serves a page that predates a write.
 - **Honest cost.** The dominant latency in `implement`/`rebuild` is pytest's subprocess startup in the existing `Runner` (hundreds of ms per node), not the build or the search. An in-process / long-lived pytest worker is future work (already noted in the library spec).
 
@@ -354,10 +362,11 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 - **`test_codebase_folders.py`** — `make_folder` nests under root/explicit parent; `move` re-parents and updates both `children` sets; moving into own subtree / onto a non-folder / moving the root raises `InvalidMove`; after a move, every descendant's `@in:` tags are rewritten so folder-filtered search reflects the new location (and the old folder no longer matches), with no re-embedding.
 - **`test_codebase_implement.py`** — `define_abstraction` yields a node that is `dirty()` and searchable with no code; `implement` with passing tests commits and clears dirty; `implement` with a failing test reverts (node back to abstraction-only / prior code), raises `ImplementationFailed` with results, and leaves the node dirty; re-`implement` after a fix commits; a dependency change marks the dependent dirty.
 - **`test_codebase_rebuild.py`** — `rebuild` regenerates only dirty nodes (clean ones land in `skipped`); a dependency edit then `rebuild` re-tests dependents; failing nodes appear in `failed` and stay dirty (no revert); subtree-scoped `rebuild(node_id)`.
-- **`test_search_system.py`** — `index_node`/`remove_node` round-trip with composite tags; `search` real-tag-AND vs folder/type-OR semantics; the single-folder/single-type case is one query, OR cases union exactly; `@`-prefixed real tags are rejected; `list_tags` excludes synthetics; `search_tags` ranks related tags; `reindex` rebuilds both indices from an entry list; hits carry name/kind/description without loading nodes.
+- **`test_search_system.py`** — `index_node`/`remove_node` round-trip with composite tags; `search` real-tag-AND vs folder/type-OR semantics; OR over multiple folders/types embeds exactly once (counting fake embedder) and matches the union exactly; `@`-prefixed real tags are rejected; `list_tags` excludes synthetics; `search_tags` ranks related tags; `reindex` rebuilds both indices from an entry list; hits carry name/kind/description without loading nodes.
 - **`test_search_paging.py`** — `search_page`/`search_tags_page` return correct page slices, `num_pages`/`total`; flipping pages of one query embeds exactly once (assert via a counting fake embedder); out-of-range page raises `IndexError`; empty result is page 0 with no hits; any index mutation clears the cache so the next page reflects the change; `SearchPage.render()`/`TagPage.render()` include kind/name/id/truncated-description and page navigation, and round-trip the listed `node_id`s.
 - **`test_codebase_search.py`** — end-to-end: define a few abstractions in nested folders with tags, then `search` with combinations of `tags` / `folders` / `object_types`; folder filter respects subtree membership (descendant matches `@in:<ancestor>`); `search_tags` → `list_tags` → `search(tags=...)` discover-then-filter loop across pages.
 - **`test_update_tags.py`** (in `tests/search/`) — the new `TaggedKVDatabase.update_tags` rewrites an entry's tag set, leaves its vector untouched (no re-embed: same phrase still searches identically), and updates tag-filtered results accordingly.
+- **`test_search_filtered.py`** (in `tests/search/`) — `TaggedKVDatabase.search_filtered` honors `all_tags` (AND) plus each `any_groups` group (OR), embeds the phrase exactly once per call (counting fake embedder), equals plain `search` when `any_groups=()`, and is exact under the brute-force threshold.
 
 ## Future work (explicitly not in this spec)
 
