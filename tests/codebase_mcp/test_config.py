@@ -22,3 +22,19 @@ def test_env_overrides():
     assert cfg.min_tests == 5
     assert cfg.max_folder_children == 10
     assert cfg.scratch_timeout == 12.5
+
+
+def test_ingest_defaults():
+    cfg = McpConfig.from_env({})
+    assert cfg.ingest_root.name == "ingest"
+    assert cfg.ingest_root.parent.name == ".grimoire"
+    assert cfg.ingest_timeout == 60.0
+
+
+def test_ingest_env_overrides(tmp_path):
+    cfg = McpConfig.from_env({
+        "GRIMOIRE_INGEST_ROOT": str(tmp_path / "ing"),
+        "GRIMOIRE_INGEST_TIMEOUT": "12.5",
+    })
+    assert cfg.ingest_root == tmp_path / "ing"
+    assert cfg.ingest_timeout == 12.5

@@ -11,6 +11,8 @@ class McpConfig:
     min_tests: int = 3
     max_folder_children: int = 7
     scratch_timeout: float = 30.0
+    ingest_root: Path = Path.home() / ".grimoire" / "ingest"
+    ingest_timeout: float = 60.0
 
     @classmethod
     def from_env(cls, env: dict | None = None) -> "McpConfig":
@@ -23,9 +25,15 @@ class McpConfig:
             return int(v) if v else default
 
         timeout = env.get("GRIMOIRE_SCRATCH_TIMEOUT")
+        raw_ingest = env.get("GRIMOIRE_INGEST_ROOT")
+        ingest_root = (Path(raw_ingest).expanduser() if raw_ingest
+                       else Path.home() / ".grimoire" / "ingest")
+        ingest_timeout = env.get("GRIMOIRE_INGEST_TIMEOUT")
         return cls(
             root=root,
             min_tests=_int("GRIMOIRE_MIN_TESTS", 3),
             max_folder_children=_int("GRIMOIRE_MAX_FOLDER_CHILDREN", 7),
             scratch_timeout=float(timeout) if timeout else 30.0,
+            ingest_root=ingest_root,
+            ingest_timeout=float(ingest_timeout) if ingest_timeout else 60.0,
         )
