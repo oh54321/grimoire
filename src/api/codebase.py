@@ -118,6 +118,10 @@ class Codebase:
     def load_tests(self, node_id) -> str:
         return self._graph.get_tests(node_id)
 
+    def ensure_built(self, node_ids) -> None:
+        for nid in node_ids:
+            self._graph.ensure_built(nid)
+
     def children_of(self, node_id) -> set[str]:
         return self._graph.children_of(node_id)
 

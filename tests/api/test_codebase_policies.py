@@ -89,3 +89,13 @@ def test_single_move_still_works(tmp_path):
     b = cb.make_folder("b")
     cb.move(a, b)
     assert a in cb.children_of(b)
+
+
+def test_ensure_built_materializes_build_file(tmp_path):
+    cb = _open(tmp_path)
+    nid = cb.add_method("inc", "add one")
+    cb.implement(nid, "def inc(x):\n    return x + 1\n",
+                 "def test_a():\n    assert inc(1) == 2\n")
+    (tmp_path / "build" / f"{nid}.py").unlink()
+    cb.ensure_built([nid])
+    assert (tmp_path / "build" / f"{nid}.py").exists()
