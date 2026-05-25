@@ -47,10 +47,9 @@ def test_out_of_range_and_empty(tmp_path):
 
 
 def test_mutation_clears_cache(tmp_path):
-    emb = Counting()
-    ss = _ss(tmp_path, emb)
-    ss.search_page("item", page=0, page_size=10)
-    emb.calls = 0
+    ss = _ss(tmp_path, FakeEmbedder())
+    first = ss.search_page("item", page=0, page_size=10)
+    assert first.total == 25
     ss.index_node("n99", "fn99", "item 99", "method", {"@kind:method", "@in:f1"})
-    ss.search_page("item", page=0, page_size=10)
-    assert emb.calls == 1
+    after = ss.search_page("item", page=0, page_size=10)
+    assert after.total == 26          # cache was cleared → recomputed with the new node

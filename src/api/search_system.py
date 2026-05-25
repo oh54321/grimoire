@@ -3,40 +3,11 @@ from __future__ import annotations
 from collections import OrderedDict
 from pathlib import Path
 
-import numpy as np
-
 from search.kvdb import KVDatabase
 from search.pages import PagedList
 from search.tagged_kvdb import TaggedKVDatabase
 
 from api.results import SearchHit, SearchPage, TagHit, TagPage
-
-
-class _VectorCache:
-    """Wraps an embedder and memoises encode() calls indefinitely.
-
-    Kept alive across mutations so that flipping pages and re-querying after
-    a write never re-embeds the same phrase.
-    """
-
-    def __init__(self, embedder) -> None:
-        self._embedder = embedder
-        self._cache: dict[str, np.ndarray] = {}
-
-    @property
-    def model_name(self) -> str:
-        return self._embedder.model_name
-
-    @property
-    def dim(self) -> int:
-        return self._embedder.dim
-
-    def encode(self, phrase: str) -> np.ndarray:
-        vec = self._cache.get(phrase)
-        if vec is None:
-            vec = self._embedder.encode(phrase)
-            self._cache[phrase] = vec
-        return vec
 
 
 class SearchSystem:
@@ -56,9 +27,8 @@ class SearchSystem:
         if embedder is None:
             from search.embedder import VectorConverter
             embedder = VectorConverter()
-        wrapped = _VectorCache(embedder)
-        nodes = TaggedKVDatabase(path=index_root / "nodes", embedder=wrapped)
-        tags = KVDatabase(path=index_root / "tags", embedder=wrapped)
+        nodes = TaggedKVDatabase(path=index_root / "nodes", embedder=embedder)
+        tags = KVDatabase(path=index_root / "tags", embedder=embedder)
         return cls(nodes, tags)
 
     # ---- mutation (Codebase calls these in lockstep with Graph) ----
