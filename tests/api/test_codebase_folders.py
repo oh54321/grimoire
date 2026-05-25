@@ -21,11 +21,12 @@ def test_move_retags_subtree(tmp_path):
     a = cb.make_folder("a")
     b = cb.make_folder("b")
     leaf = cb.make_folder("leaf", parent_id=a)
+    # before the move, only leaf is inside a
     assert {h.node_id for h in cb.search("leaf", folders={a}).hits} == {leaf}
     cb.move(a, b)
-    # leaf is now under b (transitively) and still under a (a was moved, not deleted)
-    assert {h.node_id for h in cb.search("leaf", folders={b}).hits} == {leaf}
+    # leaf is still inside a; and a (and therefore leaf) are now inside b
     assert {h.node_id for h in cb.search("leaf", folders={a}).hits} == {leaf}
+    assert {h.node_id for h in cb.search("leaf", folders={b}).hits} == {a, leaf}
 
 
 def test_move_into_own_subtree_rejected(tmp_path):

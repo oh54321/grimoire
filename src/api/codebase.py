@@ -160,8 +160,8 @@ class Codebase:
         node.parent_id = new_parent_id
         self._graph.update_node(node)
         self._attach_to_parent(node_id, new_parent_id)
-        # re-tag descendants (their @in: ancestry changed); no re-embed
-        for nid in self._subtree_ids(node_id):
+        # re-tag moved node + descendants (their @in: ancestry changed); no re-embed
+        for nid in [node_id, *self._subtree_ids(node_id)]:
             self._search.update_tags(nid, self._composite_tags(self._graph.get(nid)))
 
     def rename(self, node_id, new_name) -> None:
