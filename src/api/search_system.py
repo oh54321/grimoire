@@ -69,7 +69,8 @@ class SearchSystem:
         self._cache.clear()
 
     # ---- query helpers ----
-    def _any_groups(self, tags: set[str], object_types: set[str], folders: set[str]):
+    def _any_groups(self, tags: set[str], object_types: set[str], folders: set[str]) -> list[set[str]]:
+        # tags are RAW user tags (no `@` prefix), unlike the `@in:`/`@kind:` composite groups.
         groups = []
         if tags:
             groups.append(set(tags))

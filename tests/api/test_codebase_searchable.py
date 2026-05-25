@@ -28,8 +28,10 @@ def test_tag_filter_is_or(tmp_path):
     cb = _open(tmp_path)
     a = cb.add_method("aa", "alpha", tags=["x"])
     b = cb.add_method("bb", "beta", tags=["y"])
+    c = cb.add_method("cc", "gamma", tags=["z"])
     ids = {h.node_id for h in cb.search("thing", tags=["x", "y"]).hits}
-    assert a in ids and b in ids          # match >=1 tag (OR), not AND
+    assert a in ids and b in ids          # match >=1 of the requested tags (OR)
+    assert c not in ids                   # tag not requested -> excluded
 
 
 def test_hidden_node_usable_as_dependency(tmp_path):

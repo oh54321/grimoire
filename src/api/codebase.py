@@ -314,7 +314,7 @@ class Codebase:
         self._graph.ensure_built(node_id)
         return ImplementResult(node_id=node_id, results=results, all_passing=True)
 
-    def set_searchable(self, node_id, value) -> None:
+    def set_searchable(self, node_id: str, value: bool) -> None:
         node = self._graph.get(node_id)
         node.searchable = bool(value)
         self._graph.update_node(node)
