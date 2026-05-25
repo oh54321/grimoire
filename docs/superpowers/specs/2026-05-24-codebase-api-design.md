@@ -138,17 +138,17 @@ Owns two vector stores from the `search` package. It is Graph-agnostic: folder a
 
 All filterable structure — real tags, object type, and folder ancestry — is collapsed into the **tag space** of a single store, so any precise query is one native AND over a tag set and `SearchSystem` needs no Graph knowledge at query time.
 
-- **node index** — a `TaggedKVDatabase` at `<root>/index/nodes/`. One entry per node: `phrase = description` (folders included, so folders are searchable too), `value = {"node_id", "name", "kind", "description"}` (exactly a `SearchHit`, so search never loads a node), and a **composite tag set**:
+- **node index** — a `TaggedKVDatabase` at `<root>/index/nodes/`. One entry per node, **keyed by `node_id`** (the unique identity) while **embedding the `description`** (folders included, so folders are searchable too); `value = {"node_id", "name", "kind", "description"}` (exactly a `SearchHit`, so search never loads a node), and a **composite tag set**:
 
   ```
   tags(node) = real_tags
              ∪ {"@kind:<object_type>"}                       # e.g. @kind:method, @kind:folder
-             ∪ {"@in:<ancestor_id>" for each ancestor folder up to and including root}
+             ∪ {"@in:<ancestor_id>" for each ancestor folder up to root (strict ancestors)}
   ```
 
-  So "in the subtree of folder F" is simply "has tag `@in:F`", and "is a method" is "has tag `@kind:method`". Ancestry is baked in at write time; the store answers folder/type/tag filters natively with no post-filtering and no Graph lookup.
+  Keying by `node_id` is essential: descriptions are **not unique** (two stubs may share text), so the embed text cannot double as the identity. So "in the subtree of folder F" is "has tag `@in:F`" (a folder does not match itself), and "is a method" is "has tag `@kind:method`". Ancestry is baked in at write time; the store answers folder/type/tag filters natively with no post-filtering and no Graph lookup.
 
-- **tag index** — a `KVDatabase` at `<root>/index/tags/`. One entry per distinct **real** tag text (never the `@kind:`/`@in:` synthetics): `phrase = value = tag_text`. Backs the "tag search by vector" feature — find tags near a concept even when the wording differs.
+- **tag index** — a `KVDatabase` at `<root>/index/tags/`. One entry per distinct **real** tag text (never the `@kind:`/`@in:` synthetics): `phrase = value = tag_text` (tag texts are unique, so phrase-as-key is fine here). Backs the "tag search by vector" feature — find tags near a concept even when the wording differs.
 
 **Namespace safety:** the `@` prefix is reserved for synthetic tags; real tag texts are validated to not start with `@` (raises `ApiError`). `Tag.v` (the per-tag vector on nodes) is unused; the tag index embeds tag texts directly via the shared `VectorConverter`, keeping one embedding pathway.
 
@@ -198,10 +198,14 @@ must match ALL of:  real_tags                              (AND)
 
 The candidate id set is computed from the store's tag→id buckets with plain set operations (intersect the AND tags' buckets, intersect with the union of each OR group's buckets), then a single vector search ranks that candidate set. For the common single-folder/single-type case the groups are singletons and it's an ordinary AND query. Results are exact: under the store's `brute_force_threshold` the candidate set is ranked by exact brute-force cosine; above it, HNSW with a membership filter.
 
-This needs two small, principled additions to `TaggedKVDatabase`, both public (the api layer never touches privates):
+This needs four small, principled additions to `TaggedKVDatabase`, all public (the api layer never touches privates). They bump the tagged store to **v3** (the `key`/identity split changes the persisted shape):
 
-- **`update_tags(phrase, new_tags)`** — rewrite an entry's tag maps **without re-encoding the phrase vector** (the existing `add` re-embeds on every call, wasteful for the move/retag path below).
+- **keyed identity** — `add(phrase, value, tags=(), *, key=None)` where `key` (default the phrase) is the unique dedup identity; the entry still *embeds* `phrase`. The api passes `key=node_id`, `phrase=description`. Internally the dedup map is keyed by `key`, not by phrase.
+- **`delete(key)`** — remove an entry by identity (marks the HNSW id deleted and drops the maps). Required by `SearchSystem.remove_node`; the store has no delete today.
+- **`update_tags(key, new_tags)`** — rewrite an entry's tag maps **without re-encoding the vector** (the existing `add` re-embeds on every call, wasteful for the move/retag path).
 - **`search_filtered(phrase, n, *, all_tags=(), any_groups=())`** — one query whose candidates must contain every tag in `all_tags` and, for each group in `any_groups`, at least one tag from that group. Embeds the phrase once and runs the existing exact/HNSW path over the computed candidate set. (`any_groups=()` makes it identical to today's `search`.) **Critically, the query is embedded exactly once per call** — this is what keeps OR-filtered search as fast as a plain one.
+
+`KVDatabase` (the tag-vocabulary index) is unchanged: its `key` defaults to the phrase, which is unique for tag texts.
 
 ### Paging and rendered pages
 
@@ -382,10 +386,11 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 - **`test_builder_trial.py`** (in `tests/library/`) — `Builder.build_trial` materializes build/test files from given text without writing the store or recording a manifest entry; a failed trial followed by `ensure_built` restores the canonical materialization; `Graph.trial_run` returns results without committing.
 - **`test_test_worker.py`** (in `tests/library/`) — warm worker reuses one process across runs; after rebuilding a node's code the worker picks up the new behavior (stale-module eviction works); a crashing/hanging test is reported as a `BuildError` and the worker is respawned (host survives); results are identical to the one-shot path (`use_test_worker=False`).
 - **`test_codebase_rebuild.py`** — `rebuild` regenerates only dirty nodes (clean ones land in `skipped`); a dependency edit then `rebuild` re-tests dependents; failing nodes appear in `failed` and stay dirty (no revert); subtree-scoped `rebuild(node_id)`.
-- **`test_search_system.py`** — `index_node`/`remove_node` round-trip with composite tags; `search` real-tag-AND vs folder/type-OR semantics; OR over multiple folders/types embeds exactly once (counting fake embedder) and matches the union exactly; `@`-prefixed real tags are rejected; `list_tags` excludes synthetics; `search_tags` ranks related tags; `reindex` rebuilds both indices from an entry list; hits carry name/kind/description without loading nodes.
+- **`test_search_system.py`** — `index_node`/`remove_node` round-trip with composite tags, keyed by `node_id`; **two nodes with identical descriptions are both indexed and independently found/removed** (collision guard); `search` real-tag-AND vs folder/type-OR semantics; OR over multiple folders/types embeds exactly once (counting fake embedder) and matches the union exactly; `@`-prefixed real tags are rejected; `list_tags` excludes synthetics; `search_tags` ranks related tags; `reindex` rebuilds both indices from an entry list; hits carry name/kind/description without loading nodes.
 - **`test_search_paging.py`** — `search_page`/`search_tags_page` return correct page slices, `num_pages`/`total`; flipping pages of one query embeds exactly once (assert via a counting fake embedder); out-of-range page raises `IndexError`; empty result is page 0 with no hits; any index mutation clears the cache so the next page reflects the change; `SearchPage.render()`/`TagPage.render()` include kind/name/id/truncated-description and page navigation, and round-trip the listed `node_id`s.
 - **`test_codebase_search.py`** — end-to-end: define a few abstractions in nested folders with tags, then `search` with combinations of `tags` / `folders` / `object_types`; folder filter respects subtree membership (descendant matches `@in:<ancestor>`); `search_tags` → `list_tags` → `search(tags=...)` discover-then-filter loop across pages.
-- **`test_update_tags.py`** (in `tests/search/`) — the new `TaggedKVDatabase.update_tags` rewrites an entry's tag set, leaves its vector untouched (no re-embed: same phrase still searches identically), and updates tag-filtered results accordingly.
+- **`test_tagged_kvdb_keyed.py`** (in `tests/search/`) — `add` with an explicit `key` dedups on the key, not the phrase: two entries with identical phrases but different keys both persist and are independently retrievable; re-adding the same key replaces; `delete(key)` removes an entry (gone from search and tag listings); a v2 store file is rejected with a clear version error (v3).
+- **`test_update_tags.py`** (in `tests/search/`) — `TaggedKVDatabase.update_tags(key, tags)` rewrites an entry's tag set, leaves its vector untouched (no re-embed: same phrase still searches identically), and updates tag-filtered results accordingly.
 - **`test_search_filtered.py`** (in `tests/search/`) — `TaggedKVDatabase.search_filtered` honors `all_tags` (AND) plus each `any_groups` group (OR), embeds the phrase exactly once per call (counting fake embedder), equals plain `search` when `any_groups=()`, and is exact under the brute-force threshold.
 
 ## Future work (explicitly not in this spec)
