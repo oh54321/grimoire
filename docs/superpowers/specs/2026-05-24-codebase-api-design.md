@@ -44,8 +44,8 @@ Codebase  ── owns ──▶  Graph         (library: node store + cache + bu
 ```
 
 - **`Graph`** (existing, `src/library/`, unchanged) owns the node store, cache, incremental builder, pytest runner, and the in-memory parent/children/tags/dependents index.
-- **`SearchSystem`** (`src/api/search_system.py`) owns **both** vector indices and their persistence under `<root>/index/`. It has a pure search/index responsibility and **never references `Graph`.** It cannot resolve folder ancestry itself; the coordinator supplies that as a precomputed id set.
-- **`Codebase`** (`src/api/codebase.py`) is the structure around both. It is the **only** object that owns and mutates `Graph` and `SearchSystem`, always in lockstep. It derives `root_id` and `dirty()`, resolves folder filters into id sets from `Graph`, and runs the transactional `implement`.
+- **`SearchSystem`** (`src/api/search_system.py`) owns **both** vector indices and their persistence under `<root>/index/`. It has a pure search/index responsibility and **never references `Graph`.** Folder ancestry and object type are baked into each entry's tags at write time (by `Codebase`), so it answers every filter natively with no Graph lookup at query time.
+- **`Codebase`** (`src/api/codebase.py`) is the structure around both. It is the **only** object that owns and mutates `Graph` and `SearchSystem`, always in lockstep. It derives `root_id` and `dirty()`, computes each node's composite tags (real ∪ `@kind:` ∪ `@in:` ancestry) from the tree when indexing, and runs the transactional `implement`.
 
 `Graph` and `SearchSystem` never reference each other; all coordination goes through `Codebase`.
 
@@ -112,14 +112,25 @@ class RebuildReport:
 
 ## `SearchSystem`
 
-Owns two vector stores from the `search` package and the maps needed for exact filtering. It is Graph-agnostic: callers pass an `allowed_ids` set (already resolved to the folder subtree) and an `object_types` set; `SearchSystem` intersects those with its tag filter and the live corpus and queries.
+Owns two vector stores from the `search` package. It is Graph-agnostic: folder ancestry and object type are encoded as composite tags on each entry at index time, so every filter is answered by native AND tag queries with no Graph lookup and no post-filtering.
 
 ### Indices
 
-- **node index** — a `TaggedKVDatabase` at `<root>/index/nodes/`. One entry per node: `phrase = description` (folders included, so folders are searchable too), `tags = {t.text for t in node.tags}`, `value = {"node_id", "name", "kind", "description"}`. The value is exactly what a `SearchHit` needs, so search never loads a node.
-- **tag index** — a `KVDatabase` at `<root>/index/tags/`. One entry per distinct tag text: `phrase = value = tag_text`. This backs the "tag search by vector" feature — find tags near a concept even when the wording differs.
+All filterable structure — real tags, object type, and folder ancestry — is collapsed into the **tag space** of a single store, so any precise query is one native AND over a tag set and `SearchSystem` needs no Graph knowledge at query time.
 
-`Tag.v` (the per-tag vector already stored on nodes) is not used by the index; the tag index embeds tag texts directly via the shared `VectorConverter`, keeping one embedding pathway.
+- **node index** — a `TaggedKVDatabase` at `<root>/index/nodes/`. One entry per node: `phrase = description` (folders included, so folders are searchable too), `value = {"node_id", "name", "kind", "description"}` (exactly a `SearchHit`, so search never loads a node), and a **composite tag set**:
+
+  ```
+  tags(node) = real_tags
+             ∪ {"@kind:<object_type>"}                       # e.g. @kind:method, @kind:folder
+             ∪ {"@in:<ancestor_id>" for each ancestor folder up to and including root}
+  ```
+
+  So "in the subtree of folder F" is simply "has tag `@in:F`", and "is a method" is "has tag `@kind:method`". Ancestry is baked in at write time; the store answers folder/type/tag filters natively with no post-filtering and no Graph lookup.
+
+- **tag index** — a `KVDatabase` at `<root>/index/tags/`. One entry per distinct **real** tag text (never the `@kind:`/`@in:` synthetics): `phrase = value = tag_text`. Backs the "tag search by vector" feature — find tags near a concept even when the wording differs.
+
+**Namespace safety:** the `@` prefix is reserved for synthetic tags; real tag texts are validated to not start with `@` (raises `ApiError`). `Tag.v` (the per-tag vector on nodes) is unused; the tag index embeds tag texts directly via the shared `VectorConverter`, keeping one embedding pathway.
 
 ### Public API
 
@@ -128,45 +139,37 @@ class SearchSystem:
     @classmethod
     def open(cls, index_root: Path, embedder=None) -> "SearchSystem": ...
 
-    # mutation — called by Codebase in lockstep with Graph
+    # mutation — called by Codebase in lockstep with Graph. `tags` here is the
+    # COMPOSITE set (real ∪ @kind: ∪ @in:), assembled by Codebase which knows the tree.
     def index_node(self, node_id, name, description, kind, tags: set[str]) -> None
     def remove_node(self, node_id) -> None
-    def index_tags(self, tags: set[str]) -> None          # adds any new tag texts to the tag vocab
+    def index_tags(self, real_tags: set[str]) -> None     # adds new real tag texts to the tag vocab
+    def update_tags(self, node_id, tags: set[str]) -> None  # rewrite an entry's tag set, NO re-embed
 
     # query
     def search(self, query, *, n=10,
-               tags: set[str] = frozenset(),              # AND — must match ALL
-               object_types: set[str] = frozenset(),      # OR  — kind in this set (empty = any)
-               allowed_ids: set[NodeId] | None = None,     # OR over folders, precomputed by Codebase
+               tags: set[str] = frozenset(),              # real tags — AND (must match ALL)
+               object_types: set[str] = frozenset(),      # OR — any of these kinds (empty = any)
+               folders: set[NodeId] = frozenset(),        # OR — under any of these folders (empty = whole tree)
                ) -> list[SearchHit]
     def search_tags(self, query, *, n=10) -> list[TagHit]
 
-    # maintenance — `entries` are (node_id, name, description, kind, tags) tuples,
-    # the same fields index_node takes; Codebase builds them by walking the node store
+    # maintenance — `entries` are (node_id, name, description, kind, composite_tags) tuples;
+    # Codebase builds them by walking the node store and computing ancestry from the tree
     def reindex(self, entries: Iterable[tuple[NodeId, str, str, str, set[str]]]) -> None
+    def list_tags(self) -> set[str]                       # real tags only (TaggedKVDatabase.all_tags filtered)
     def save(self) -> None
 ```
 
-### Exact filtering (no over-fetch-and-truncate)
+### Filtering via native AND tags (no post-filter, exact)
 
-The three filters have different logic — tags are AND, folders and types are OR — and the underlying `TaggedKVDatabase` natively supports only AND-tag filtering. Rather than over-fetch and post-truncate (which can silently drop matches), `SearchSystem` resolves a **single exact allowed-id set** and hands it to the store:
+`search` composes the filter entirely from tags:
 
-1. Start from the tag-AND candidate set (`TaggedKVDatabase`'s native filter) or "all live" when no tags.
-2. Intersect with `allowed_ids` (the folder-subtree set, OR over the requested folders) when not `None`.
-3. Intersect with the set of node ids whose `kind ∈ object_types` when `object_types` is non-empty (`SearchSystem` keeps a `kind → {node_id}` map). The folder-and-type intersection becomes the `allowed_values` set; tags are passed through and AND-intersected by the store.
-4. Run the vector query constrained to that final id set, returning the true top-`n`.
+- **real `tags`** → added to the AND set directly.
+- **one `object_type` + one `folder`** → add `@kind:<type>` and `@in:<folder>` to the same AND set: a single native `TaggedKVDatabase.search(query, n, tags=…)` call. Exact, HNSW-fast, no scan.
+- **OR over several `object_types` and/or `folders`** → run one AND-query per `(folder × type)` combination and merge results by `node_id` keeping the max score, then take the top `n`. Taking the top-`n` from each combination before merging is exact for the union, and both sets are small in practice (≤3 object types; usually one folder), so this is a handful of fast queries.
 
-For typical filtered queries the candidate set is small, so the store's existing **exact brute-force path** (already used below its `brute_force_threshold`) runs — exact and fast — and only large unfiltered queries fall back to approximate HNSW. This requires one small, principled addition to the `search` package (see next section) so the api layer never reaches into private internals.
-
-### Small extension to `search.TaggedKVDatabase`
-
-`TaggedKVDatabase` already computes a tag-filter id set and feeds it to a private `_search_locked(vec, n, allowed)`. We add a **public** method that accepts an externally supplied allowed-id set (in `node_id`/value terms), intersects it with the tag filter, and runs the same path:
-
-```python
-def search_within(self, phrase, n, *, tags=(), allowed_values: set | None = None) -> list[tuple[JSONValue, float]]
-```
-
-This keeps folder/type filtering exact and reuses the tested search path; the api layer depends only on a public method. (Translating `node_id` values to the store's internal int ids uses the store's existing `phrase_to_id` / value maps; the method lives in `search` precisely so that translation stays encapsulated.)
+This needs **no extension to `search` for querying** — it's all native tag AND. The one addition to `TaggedKVDatabase` is **`update_tags(phrase, new_tags)`**, which rewrites an entry's tag maps **without re-encoding the phrase vector** (the existing `add` re-embeds on every call, which would be wasteful for the move/retag path below).
 
 ## `Codebase`
 
@@ -202,11 +205,13 @@ class Codebase:
     def search(self, query, *, n=10, tags=(), folders=(), object_types=()) -> list[SearchHit]
     def search_tags(self, query, *, n=10) -> list[TagHit]
 
-    # ---- access / introspection ----
+    # ---- access / introspection (discovery helpers Claude uses to compose filters) ----
     def load(self, node_id) -> Node                  # delegates to Graph.get
     def load_code(self, node_id) -> str
     def load_tests(self, node_id) -> str
     def remove(self, node_id) -> None                # Graph.remove_node + SearchSystem.remove_node
+    def list_tags(self) -> set[str]                  # real tags available to filter on
+    def children_of(self, node_id) -> set[NodeId]    # tree walk; e.g. to pick a folder to scope a search
     def dirty(self) -> set[NodeId]                   # derived view (see below)
 ```
 
@@ -214,11 +219,11 @@ class Codebase:
 
 On `open`, `Codebase` asks `Graph` for the parent-less `FolderNode`s. Zero → create one (`new_node_id()`, `name="root"`, `parent_id=None`) and index it. Exactly one → use it. More than one → raise `ApiError` (corrupt tree). `root_id` is never stored; it is this lookup.
 
-### Folders & moving (point c)
+When indexing any node, `Codebase` assembles the composite tag set: it reads the node's real tags and computes its ancestor folder ids from the in-memory tree (`@in:<id>` for each, up to root) plus `@kind:<object_type>` (or `@kind:folder`). This is the only place ancestry meets the index, and it's why `SearchSystem` stays Graph-agnostic at query time.
 
-- `make_folder` creates a `FolderNode` under `parent_id` (default `root_id`) via `Graph.add_node`, then `SearchSystem.index_node(kind="folder")`. Adding a child also updates the parent folder's `children` set through the Graph.
-- `move(node_id, new_parent_id)` re-parents in the Graph: validates the target is a `FolderNode`, that `node_id` is not the root, and that `new_parent_id` is not `node_id` or any descendant of it (cycle check via the in-memory children index). It updates the moved node's `parent_id` and both parents' `children` sets. **It does not touch the vector index** — ancestry is never stored there; the folder filter is computed live — so move is cheap and cannot desync search.
-- `rename(node_id, new_name)` updates the node and re-indexes it (name is part of the hit and, for code nodes, the exported symbol — `Graph`/`NodeStore` enforces identifier validity).
+- `make_folder` creates a `FolderNode` under `parent_id` (default `root_id`) via `Graph.add_node`, then `SearchSystem.index_node` with the composite tags and `kind="folder"`. Adding a child also updates the parent folder's `children` set through the Graph.
+- `move(node_id, new_parent_id)` re-parents in the Graph: validates the target is a `FolderNode`, that `node_id` is not the root, and that `new_parent_id` is not `node_id` or any descendant of it (cycle check via the in-memory children index). It updates the moved node's `parent_id` and both parents' `children` sets. **It then re-tags the moved subtree in the index:** every descendant's `@in:` ancestor tags above the move point change, so `Codebase` recomputes each affected node's composite tag set and calls `SearchSystem.update_tags` — which rewrites tag maps **without re-embedding**. Cost is O(subtree size) of cheap dict updates; if interrupted, `reindex()` repairs from the tree. Real tags and `@kind:` are unchanged by a move.
+- `rename(node_id, new_name)` updates the node and re-indexes it (name is part of the hit and, for code nodes, the exported symbol — `Graph`/`NodeStore` enforces identifier validity). Re-embeds (the value/phrase set changed) but touches only the one node.
 
 ### Spec → implementation (point b)
 
@@ -256,8 +261,8 @@ def dirty(self) -> set[NodeId]:
 
 ### Navigation (point e)
 
-- `search(query, *, n, tags, folders, object_types)`: `Codebase` resolves `folders` into `allowed_ids` = the union of each listed folder's subtree (BFS over the in-memory children index; `None` when `folders` is empty = no folder constraint), then calls `SearchSystem.search(query, n=n, tags=set(tags), object_types=set(object_types), allowed_ids=allowed_ids)`. Tags are AND (all), folders and types are OR (any). Returns lightweight `SearchHit`s.
-- `search_tags(query, *, n)`: straight pass-through to `SearchSystem.search_tags` — vector search over the tag vocabulary, returning `TagHit`s to feed back into `search(tags=...)`.
+- `search(query, *, n, tags, folders, object_types)`: a thin pass-through to `SearchSystem.search(query, n=n, tags=set(tags), object_types=set(object_types), folders=set(folders))`. `SearchSystem` translates the filters into composite tags (`@in:<folder>`, `@kind:<type>`) and runs native AND queries — one query for the single-folder/single-type case, a small union of queries for OR over several. Real tags are AND, folders and types are OR. Returns lightweight `SearchHit`s. No Graph lookup at query time (ancestry is already in the tags).
+- `search_tags(query, *, n)`: straight pass-through to `SearchSystem.search_tags` — vector search over the real-tag vocabulary, returning `TagHit`s to feed back into `search(tags=...)`. The discover-then-filter loop (`search_tags` → `list_tags`/`children_of` → `search`) is the primary way Claude narrows to a precise tool without scanning the codebase.
 
 ## Errors (`api/errors.py`)
 
@@ -281,8 +286,8 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 
 - **Single source of truth.** Only the node store is authoritative. The manifest and indices are regenerable; `reindex()` and deleting `build/` recover them. No fourth state file exists to diverge.
 - **Lockstep mutation.** `Codebase` updates `Graph` then `SearchSystem` on every change. Each underlying write is atomic (tmp + `os.replace`). A crash between the two writes leaves the index stale relative to the store; because the store is truth and the index is regenerable, `reindex()` repairs it without data loss. `open` triggers a reindex when the indices are empty but nodes exist.
-- **No hot-loop embedding.** Embedding happens only on `define_abstraction`, `rename`, and tag changes — never on `implement`/`rebuild`. The implement/iterate loop is incremental-build + test-run only.
-- **Exact filtering.** Combined tag/folder/type filtering resolves to a single id set queried exactly (brute force under threshold), not approximate post-truncation.
+- **No hot-loop embedding.** Embedding happens only when a node's `phrase` (description) first appears or its name changes — on `define_abstraction` and `rename`. `implement`/`rebuild` never embed, and `move` re-tags via `update_tags` **without** re-embedding. The implement/iterate loop is incremental-build + test-run only.
+- **Exact filtering via native tags.** Folder/type/tag filters are composite tags answered by the store's native AND path (exact brute force under threshold); OR over several folders/types is an exact union of per-combination queries. No post-truncation, no query-time Graph lookup.
 - **Honest cost.** The dominant latency in `implement`/`rebuild` is pytest's subprocess startup in the existing `Runner` (hundreds of ms per node), not the build or the search. An in-process / long-lived pytest worker is future work (already noted in the library spec).
 
 ## Testing
@@ -290,12 +295,12 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 `tests/api/` mirrors the source. Disk tests use `tmp_path`. The embedder is a small deterministic fake (hash-based vectors) so tests are fast and offline; one slow-marked test exercises the real `VectorConverter` end-to-end.
 
 - **`test_codebase_bootstrap.py`** — first `open` creates exactly one root `FolderNode`; reopening reuses it; a hand-corrupted two-root store raises `ApiError`; `root_id` is the parent-less folder.
-- **`test_codebase_folders.py`** — `make_folder` nests under root/explicit parent; `move` re-parents and updates both `children` sets; moving into own subtree / onto a non-folder / moving the root raises `InvalidMove`; move leaves the index unchanged yet folder-filtered search still reflects the new location.
+- **`test_codebase_folders.py`** — `make_folder` nests under root/explicit parent; `move` re-parents and updates both `children` sets; moving into own subtree / onto a non-folder / moving the root raises `InvalidMove`; after a move, every descendant's `@in:` tags are rewritten so folder-filtered search reflects the new location (and the old folder no longer matches), with no re-embedding.
 - **`test_codebase_implement.py`** — `define_abstraction` yields a node that is `dirty()` and searchable with no code; `implement` with passing tests commits and clears dirty; `implement` with a failing test reverts (node back to abstraction-only / prior code), raises `ImplementationFailed` with results, and leaves the node dirty; re-`implement` after a fix commits; a dependency change marks the dependent dirty.
 - **`test_codebase_rebuild.py`** — `rebuild` regenerates only dirty nodes (clean ones land in `skipped`); a dependency edit then `rebuild` re-tests dependents; failing nodes appear in `failed` and stay dirty (no revert); subtree-scoped `rebuild(node_id)`.
-- **`test_search_system.py`** — `index_node`/`remove_node` round-trip; `search` tag-AND vs folder/type-OR semantics; `allowed_ids` constrains results exactly; `search_tags` ranks related tags; `reindex` rebuilds both indices from a node list; hits carry name/kind/description without loading nodes.
-- **`test_codebase_search.py`** — end-to-end: define a few abstractions in nested folders with tags, then `search` with combinations of `tags` / `folders` / `object_types`; folder filter respects subtree membership; `search_tags` → `search(tags=...)` round-trip.
-- **`test_search_within.py`** (in `tests/search/`) — the new `TaggedKVDatabase.search_within` honors an external `allowed_values` set intersected with tags, exact under brute force.
+- **`test_search_system.py`** — `index_node`/`remove_node` round-trip with composite tags; `search` real-tag-AND vs folder/type-OR semantics; the single-folder/single-type case is one query, OR cases union exactly; `@`-prefixed real tags are rejected; `list_tags` excludes synthetics; `search_tags` ranks related tags; `reindex` rebuilds both indices from an entry list; hits carry name/kind/description without loading nodes.
+- **`test_codebase_search.py`** — end-to-end: define a few abstractions in nested folders with tags, then `search` with combinations of `tags` / `folders` / `object_types`; folder filter respects subtree membership (descendant matches `@in:<ancestor>`); `search_tags` → `list_tags` → `search(tags=...)` discover-then-filter loop.
+- **`test_update_tags.py`** (in `tests/search/`) — the new `TaggedKVDatabase.update_tags` rewrites an entry's tag set, leaves its vector untouched (no re-embed: same phrase still searches identically), and updates tag-filtered results accordingly.
 
 ## Future work (explicitly not in this spec)
 
