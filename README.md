@@ -32,8 +32,10 @@ Install the `grimoire` command in one line with [pipx](https://pipx.pypa.io), th
 
 ```bash
 pipx install git+https://github.com/oh54321/grimoire.git
-claude mcp add grimoire -- grimoire
+claude mcp add grimoire --scope user -- "$(command -v grimoire)"
 ```
+
+`--scope user` registers it for every project; `"$(command -v grimoire)"` pins the **absolute path** at install time, so the server keeps launching even if your `PATH` changes between shells or environments. (Plain `-- grimoire` works too, but only while `grimoire` happens to be on the `PATH` Claude is started with.)
 
 <details>
 <summary>Other ways to install</summary>
@@ -44,9 +46,9 @@ git clone https://github.com/oh54321/grimoire.git
 cd grimoire && ./install.sh
 ```
 
-**Zero-install with [uv](https://docs.astral.sh/uv/)** — run straight from git (use this as the MCP command):
+**Zero-install with [uv](https://docs.astral.sh/uv/)** — no install step; register the `uvx` invocation itself as the MCP command (uv resolves it on each launch, so there's no PATH dependence):
 ```bash
-uvx --from git+https://github.com/oh54321/grimoire.git grimoire
+claude mcp add grimoire --scope user -- uvx --from git+https://github.com/oh54321/grimoire.git grimoire
 ```
 
 **Plain pip**, in a virtualenv:
@@ -59,11 +61,13 @@ cd grimoire && pip install .
 <details>
 <summary>Manual MCP client config</summary>
 
+Use the **absolute path** to the installed binary for `command` (find it with `command -v grimoire`) so the server doesn't depend on the client's `PATH`:
+
 ```json
 {
   "mcpServers": {
     "grimoire": {
-      "command": "grimoire",
+      "command": "/home/you/.local/bin/grimoire",
       "env": { "GRIMOIRE_CODEBASE": "~/.grimoire/codebase" }
     }
   }

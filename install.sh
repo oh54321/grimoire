@@ -26,6 +26,13 @@ else
   run_cmd="$HOME/.grimoire/venv/bin/grimoire"
 fi
 
+# Resolve to an absolute path so the MCP registration never depends on PATH.
+if [ "$run_cmd" = "grimoire" ]; then
+  run_cmd="$(command -v grimoire 2>/dev/null || echo "$HOME/.local/bin/grimoire")"
+fi
+
 echo
-echo "✅ Installed. Register with Claude Code:"
-echo "     claude mcp add grimoire -- $run_cmd"
+echo "✅ Installed at: $run_cmd"
+echo
+echo "Register with Claude Code (absolute path + user scope = robust across shells/projects):"
+echo "     claude mcp add grimoire --scope user -- $run_cmd"
