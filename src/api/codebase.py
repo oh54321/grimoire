@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,18 @@ from api.results import ImplementResult, RebuildReport, SearchPage, TagPage
 from api.search_system import SearchSystem
 
 _NO_VEC = np.zeros(0, dtype=float)
+
+
+def _count_tests(tests: str) -> int:
+    try:
+        tree = ast.parse(tests)
+    except SyntaxError:
+        return 0
+    return sum(
+        1 for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name.startswith("test_")
+    )
 
 
 class Codebase:
@@ -258,6 +271,12 @@ class Codebase:
         node = self._graph.get(node_id)
         if not isinstance(node, CodeNode):
             raise ApiError(f"{node_id} is not a code node")
+        floor = self._graph.config.min_tests_per_method
+        if floor > 0:
+            got = _count_tests(tests)
+            if got < floor:
+                raise ImplementationFailed(
+                    node_id, results=[], detail=f"got {got} tests, need >= {floor}")
         results = self._graph.trial_run(node_id, code, tests)
         passing = bool(results) and all(r.status == TestStatus.PASSING for r in results)
         if not passing:
