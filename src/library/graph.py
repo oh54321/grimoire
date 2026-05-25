@@ -178,6 +178,26 @@ class Graph:
             self._cache.invalidate(node_id)
         return results
 
+    def trial_run(self, node_id: NodeId, code: str, tests: str) -> list[TestResult]:
+        """Build + test candidate code/tests in the build scratch area without
+        committing to the store. Returns the per-test results."""
+        node = self._cache.get(node_id)
+        if not isinstance(node, CodeNode):
+            raise BuildError(node_id, "only CodeNodes can be implemented")
+        for dep_id in node.dependencies:
+            self.ensure_built(dep_id)
+        self._builder.build_trial(node_id, code, tests, node.dependencies)
+        return self._runner.run_tests(node_id)
+
+    def discard_trial(self, node_id: NodeId) -> None:
+        """Undo a failed trial. Restores the canonical build if the node has
+        committed code; otherwise removes the scratch build files."""
+        if self._store.load_code(node_id):
+            self._builder.invalidate(node_id)
+            self._builder.ensure_built(node_id)
+        else:
+            self._builder.remove(node_id)
+
     # ----- index rebuild -----
 
     def _rebuild_index(self) -> None:

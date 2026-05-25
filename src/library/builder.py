@@ -189,6 +189,36 @@ class Builder:
                 p.unlink()
         self._save_manifest()
 
+    def build_trial(self, node_id: NodeId, code_text: str, tests_text: str,
+                    dependencies) -> None:
+        """Materialize build/<id>.py and build/test_<id>.py from the given candidate
+        text WITHOUT reading or writing the store and WITHOUT recording a manifest
+        entry. Dependencies must already be built."""
+        _scan_forbidden_build_imports(node_id, code_text, where="code.py")
+        dep_nodes: list[CodeNode] = []
+        for dep_id in sorted(dependencies):
+            if not self.store.exists(dep_id):
+                raise MissingDependency(node_id, dep_id)
+            dep_node = self.cache.get(dep_id)
+            if not isinstance(dep_node, CodeNode):
+                raise BuildError(node_id, f"dependency {dep_id} is not a CodeNode")
+            dep_nodes.append(dep_node)
+        seen: dict[str, NodeId] = {}
+        for dn in dep_nodes:
+            if dn.name in seen:
+                raise BuildError(node_id, f"duplicate dep symbol: {dn.name}")
+            seen[dn.name] = dn.node_id
+        self._build_root_init()
+        node = self.cache.get(node_id)
+        if not isinstance(node, CodeNode):
+            raise BuildError(node_id, "only CodeNodes can be built")
+        out = self._compose_built_file(dep_nodes, code_text)
+        _atomic_write(self.build_root / f"{node_id}.py", out)
+        if tests_text:
+            _scan_forbidden_build_imports(node_id, tests_text, where="tests.py")
+            test_out = self._compose_test_file(node, dep_nodes, tests_text)
+            _atomic_write(self.build_root / f"test_{node_id}.py", test_out)
+
     def clean(self) -> None:
         if self.build_root.exists():
             shutil.rmtree(self.build_root)
