@@ -1,7 +1,7 @@
 """Warm pytest worker. Reads one JSON request per line on stdin
 ({"target": "<test_file>", "report": "<json_report_path>"}), runs pytest
 in-process against the target writing a json report, and replies with one
-JSON line. Run as: python -m library._test_worker <store_root>
+JSON line. Run as: python -m grimoire.library._test_worker <store_root>
 """
 import io
 import json

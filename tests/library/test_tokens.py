@@ -1,5 +1,5 @@
-from library import tokens
-from library.tokens import count_tokens
+from grimoire.library import tokens
+from grimoire.library.tokens import count_tokens
 
 
 def test_empty_string_is_zero_tokens():

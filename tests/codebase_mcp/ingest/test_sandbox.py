@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from codebase_mcp.ingest.sandbox import Sandbox, FetchError
+from grimoire.codebase_mcp.ingest.sandbox import Sandbox, FetchError
 
 
 def _src(tmp_path) -> Path:

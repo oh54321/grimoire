@@ -1,6 +1,6 @@
 import pytest
-from api.codebase import Codebase
-from api.errors import ImplementationFailed
+from grimoire.api.codebase import Codebase
+from grimoire.api.errors import ImplementationFailed
 from tests.api.test_search_system import FakeEmbedder
 
 

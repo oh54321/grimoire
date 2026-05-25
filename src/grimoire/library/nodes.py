@@ -6,7 +6,7 @@ from typing import ClassVar, Literal
 
 import numpy as np
 
-from library.ids import NodeId
+from grimoire.library.ids import NodeId
 
 ObjectType = Literal["class", "method", "executable"]
 

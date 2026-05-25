@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from library.config import LibraryConfig
+from grimoire.library.config import LibraryConfig
 
 
 def test_load_returns_defaults_when_file_missing(tmp_path: Path):
@@ -42,7 +42,7 @@ def test_load_ignores_unknown_keys(tmp_path: Path):
 
 
 def test_policy_fields_default_zero_and_roundtrip(tmp_path):
-    from library.config import LibraryConfig
+    from grimoire.library.config import LibraryConfig
     cfg = LibraryConfig(root_path=tmp_path)
     assert cfg.min_tests_per_method == 0
     assert cfg.max_folder_children == 0

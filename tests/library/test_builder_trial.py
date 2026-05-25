@@ -1,4 +1,4 @@
-from library import Graph, CodeNode, TestStatus, new_node_id
+from grimoire.library import Graph, CodeNode, TestStatus, new_node_id
 
 
 def test_trial_run_does_not_commit(tmp_path):
@@ -22,7 +22,7 @@ def test_discard_trial_first_impl_removes_scratch(tmp_path):
 
 def test_trial_run_on_folder_raises(tmp_path):
     import pytest
-    from library import FolderNode, BuildError
+    from grimoire.library import FolderNode, BuildError
     g = Graph.open(tmp_path)
     fid = new_node_id()
     g.add_node(FolderNode(node_id=fid, name="f", description="d"))

@@ -1,5 +1,5 @@
 from pathlib import Path
-from codebase_mcp.scratch import ScratchRunner
+from grimoire.codebase_mcp.scratch import ScratchRunner
 
 
 def _runner(tmp_path, timeout=10.0):

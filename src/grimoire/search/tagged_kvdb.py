@@ -6,8 +6,8 @@ from typing import Iterable
 
 import numpy as np
 
-from search._base import JSONValue, _VectorStoreBase
-from search.pages import PagedList
+from grimoire.search._base import JSONValue, _VectorStoreBase
+from grimoire.search.pages import PagedList
 
 TAGGED_STORE_VERSION = 3
 DEFAULT_BRUTE_FORCE_THRESHOLD = 1000

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from codebase_mcp.ingest.survey import survey
+from grimoire.codebase_mcp.ingest.survey import survey
 
 
 def _tree(tmp_path) -> Path:

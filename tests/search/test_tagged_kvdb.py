@@ -4,8 +4,8 @@ import threading
 
 import pytest
 
-from search.pages import PagedList
-from search.tagged_kvdb import TaggedKVDatabase
+from grimoire.search.pages import PagedList
+from grimoire.search.tagged_kvdb import TaggedKVDatabase
 
 
 def test_add_with_tags_then_tags_of(fake_embedder):
@@ -239,7 +239,7 @@ def test_save_and_load_roundtrip(tmp_path, fake_embedder):
 
 
 def test_load_v1_into_tagged_kvdatabase_rejects(tmp_path, fake_embedder):
-    from search import KVDatabase
+    from grimoire.search import KVDatabase
 
     path = tmp_path / "store"
     plain = KVDatabase(path=path, embedder=fake_embedder)
@@ -251,7 +251,7 @@ def test_load_v1_into_tagged_kvdatabase_rejects(tmp_path, fake_embedder):
 
 
 def test_load_v2_into_plain_kvdatabase_rejects(tmp_path, fake_embedder):
-    from search import KVDatabase
+    from grimoire.search import KVDatabase
 
     path = tmp_path / "store"
     tagged = TaggedKVDatabase(path=path, embedder=fake_embedder)

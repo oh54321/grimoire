@@ -2,15 +2,15 @@ import numpy as np
 import pytest
 from pathlib import Path
 
-from library.config import LibraryConfig
-from library.errors import (
+from grimoire.library.config import LibraryConfig
+from grimoire.library.errors import (
     CorruptMetaFile,
     DescriptionTooLong,
     InvalidNodeName,
     NodeNotFound,
 )
-from library.nodes import CodeNode, FolderNode, Tag, Test, TestStatus
-from library.store import NodeStore
+from grimoire.library.nodes import CodeNode, FolderNode, Tag, Test, TestStatus
+from grimoire.library.store import NodeStore
 
 
 def _config(tmp_path: Path) -> LibraryConfig:
@@ -150,9 +150,9 @@ def test_size_on_disk_is_positive(tmp_path: Path):
 
 
 def test_searchable_roundtrips(tmp_path):
-    from library.config import LibraryConfig
-    from library.store import NodeStore
-    from library.nodes import CodeNode
+    from grimoire.library.config import LibraryConfig
+    from grimoire.library.store import NodeStore
+    from grimoire.library.nodes import CodeNode
     store = NodeStore(LibraryConfig(root_path=tmp_path))
     store.save(CodeNode(node_id="c1", name="foo", description="d", searchable=False))
     assert store.load("c1").searchable is False
@@ -160,9 +160,9 @@ def test_searchable_roundtrips(tmp_path):
 
 def test_missing_searchable_key_defaults_true(tmp_path):
     import json
-    from library.config import LibraryConfig
-    from library.store import NodeStore
-    from library.nodes import CodeNode
+    from grimoire.library.config import LibraryConfig
+    from grimoire.library.store import NodeStore
+    from grimoire.library.nodes import CodeNode
     store = NodeStore(LibraryConfig(root_path=tmp_path))
     store.save(CodeNode(node_id="c2", name="bar", description="d"))
     meta = tmp_path / "c2" / "meta.json"
@@ -174,9 +174,9 @@ def test_missing_searchable_key_defaults_true(tmp_path):
 
 def test_is_tool_roundtrips_and_defaults_true(tmp_path):
     import json
-    from library.config import LibraryConfig
-    from library.store import NodeStore
-    from library.nodes import CodeNode
+    from grimoire.library.config import LibraryConfig
+    from grimoire.library.store import NodeStore
+    from grimoire.library.nodes import CodeNode
     store = NodeStore(LibraryConfig(root_path=tmp_path))
     store.save(CodeNode(node_id="t1", name="foo", description="d", is_tool=False))
     assert store.load("t1").is_tool is False

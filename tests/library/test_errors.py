@@ -1,4 +1,4 @@
-from library.errors import (
+from grimoire.library.errors import (
     NodeNotFound,
     DuplicateNodeId,
     CorruptMetaFile,

@@ -1,5 +1,5 @@
 import numpy as np
-from search.tagged_kvdb import TaggedKVDatabase
+from grimoire.search.tagged_kvdb import TaggedKVDatabase
 
 
 class CountingEmbedder:

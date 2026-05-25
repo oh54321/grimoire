@@ -1,5 +1,5 @@
 from pathlib import Path
-from codebase_mcp.config import McpConfig
+from grimoire.codebase_mcp.config import McpConfig
 
 
 def test_defaults_when_env_empty():

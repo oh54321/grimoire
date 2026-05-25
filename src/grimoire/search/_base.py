@@ -111,7 +111,7 @@ class _VectorStoreBase:
         initial_capacity: int = 1024,
     ) -> None:
         if embedder is None:
-            from search.embedder import VectorConverter
+            from grimoire.search.embedder import VectorConverter
             embedder = VectorConverter()
         self._embedder = embedder
         self._path = Path(path) if path is not None else None

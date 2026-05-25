@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from codebase_mcp.ingest.survey import read_symbol
+from grimoire.codebase_mcp.ingest.survey import read_symbol
 
 
 def _mod(tmp_path) -> Path:

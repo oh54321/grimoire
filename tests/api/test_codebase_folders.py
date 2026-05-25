@@ -1,6 +1,6 @@
 import pytest
-from api.codebase import Codebase
-from api.errors import InvalidMove
+from grimoire.api.codebase import Codebase
+from grimoire.api.errors import InvalidMove
 from tests.api.test_search_system import FakeEmbedder
 
 

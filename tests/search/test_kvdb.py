@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from search import KVDatabase
+from grimoire.search import KVDatabase
 
 
 def test_add_then_search_returns_value_with_high_similarity(fake_embedder):

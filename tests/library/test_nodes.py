@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from library.nodes import (
+from grimoire.library.nodes import (
     Tag,
     Node,
     FolderNode,
@@ -77,6 +77,6 @@ def test_node_equality_includes_node_id():
 
 
 def test_nodes_default_searchable_true():
-    from library.nodes import CodeNode, FolderNode
+    from grimoire.library.nodes import CodeNode, FolderNode
     assert CodeNode(node_id="c", name="foo", description="d").searchable is True
     assert FolderNode(node_id="f", name="grp", description="d").searchable is True

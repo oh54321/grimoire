@@ -9,16 +9,16 @@ from typing import Any, Iterator
 
 import numpy as np
 
-from library.config import LibraryConfig
-from library.errors import (
+from grimoire.library.config import LibraryConfig
+from grimoire.library.errors import (
     CorruptMetaFile,
     DescriptionTooLong,
     InvalidNodeName,
     NodeNotFound,
 )
-from library.ids import NodeId
-from library.nodes import CodeNode, FolderNode, Node, Tag, Test, TestStatus
-from library.tokens import count_tokens
+from grimoire.library.ids import NodeId
+from grimoire.library.nodes import CodeNode, FolderNode, Node, Tag, Test, TestStatus
+from grimoire.library.tokens import count_tokens
 
 
 def _atomic_write(path: Path, data: str) -> None:

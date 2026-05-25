@@ -1,4 +1,4 @@
-from library import Graph, CodeNode, new_node_id
+from grimoire.library import Graph, CodeNode, new_node_id
 
 
 def _code(graph, name, body, deps=()):
@@ -22,7 +22,7 @@ def test_is_build_stale_tracks_self_and_deps(tmp_path):
 
 
 def test_iter_code_ids_excludes_folders(tmp_path):
-    from library import FolderNode
+    from grimoire.library import FolderNode
     g = Graph.open(tmp_path)
     fid = new_node_id()
     g.add_node(FolderNode(node_id=fid, name="f", description="d"))

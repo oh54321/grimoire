@@ -13,11 +13,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from library.cache import NodeCache
-from library.errors import BuildError, MissingDependency
-from library.ids import NodeId
-from library.nodes import CodeNode
-from library.store import NodeStore
+from grimoire.library.cache import NodeCache
+from grimoire.library.errors import BuildError, MissingDependency
+from grimoire.library.ids import NodeId
+from grimoire.library.nodes import CodeNode
+from grimoire.library.store import NodeStore
 
 _PREAMBLE_START = "# AUTO-GENERATED IMPORTS — do not edit"
 _PREAMBLE_END = "# END AUTO-GENERATED IMPORTS"
