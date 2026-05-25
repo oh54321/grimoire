@@ -102,7 +102,8 @@ class Builder:
 
         code_text = self.cache.get_code(node_id)
         if not code_text:
-            raise BuildError(node_id, "no code.py to build")
+            raise BuildError(node_id, "no code yet — this node was define'd but never "
+                                      "implement'ed (implement it before building or depending on it)")
 
         _scan_forbidden_build_imports(node_id, code_text, where="code.py")
 

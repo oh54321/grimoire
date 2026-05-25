@@ -281,6 +281,9 @@ class Codebase:
             report.skipped = sorted(code_in_sub - dirty)
             dirty = dirty & code_in_sub
         for nid in self._topo(dirty):
+            if not self.load_code(nid):
+                report.incomplete.append(nid)   # define'd but never implement'ed
+                continue
             try:
                 if self._graph.ensure_built(nid):
                     report.rebuilt.append(nid)

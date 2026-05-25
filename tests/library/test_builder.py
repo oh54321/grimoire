@@ -70,6 +70,20 @@ def test_dep_preamble_generated_in_built_file(tmp_path: Path):
     assert "def add_two" in built
 
 
+def test_unimplemented_dependency_gives_clear_error(tmp_path: Path):
+    """Depending on a node that was define'd but never implement'ed must fail
+    with a message that names the cause, not a cryptic one."""
+    store, _, builder = _setup(tmp_path)
+    store.save(CodeNode(node_id="dep", name="helper", description="x"))  # no code
+    store.save(
+        CodeNode(node_id="p", name="parent", description="x", dependencies={"dep"}),
+        code="def parent(): return helper()\n",
+    )
+    with pytest.raises(BuildError) as exc:
+        builder.ensure_built("p")
+    assert "implement" in exc.value.reason.lower()
+
+
 def test_missing_dependency_raises(tmp_path: Path):
     store, _, builder = _setup(tmp_path)
     store.save(
