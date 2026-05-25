@@ -76,6 +76,16 @@ class TaggedKVDatabase(_VectorStoreBase):
             self._store.id_to_phrase[new_id] = phrase
             self._add_id_to_tags(new_id, tag_set)
 
+    def update_tags(self, key: str, tags: Iterable[str]) -> None:
+        """Replace the tag set for the entry identified by `key`. Does not re-embed."""
+        tag_set = _validate_tags(tags)
+        with self._lock.write():
+            id_ = self._store.phrase_to_id.get(key)
+            if id_ is None:
+                raise KeyError(key)
+            self._remove_id_from_tags(id_)
+            self._add_id_to_tags(id_, tag_set)
+
     def delete(self, key: str) -> None:
         """Remove the entry identified by `key`. No-op if absent."""
         with self._lock.write():
