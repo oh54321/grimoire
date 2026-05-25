@@ -76,3 +76,32 @@ def test_fetch_bad_url_raises(tmp_path):
     sb = Sandbox(tmp_path / "ingest", timeout=10.0)
     with pytest.raises(FetchError):
         sb.fetch("file:///definitely/not/a/repo")
+
+
+def test_fetch_git_url_with_ref(tmp_path):
+    repo = tmp_path / "repo_ref"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n")
+    run = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True,
+                                    capture_output=True)
+    run("init", "-q")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init")
+    run("branch", "feature")
+    sb = Sandbox(tmp_path / "ingest")
+    f = sb.fetch(f"file://{repo}", ref="feature")
+    assert (f.root / "a.py").exists()
+
+
+def test_fetch_git_url_bad_ref_raises(tmp_path):
+    repo = tmp_path / "repo_badref"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n")
+    run = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True,
+                                    capture_output=True)
+    run("init", "-q")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init")
+    sb = Sandbox(tmp_path / "ingest")
+    with pytest.raises(FetchError):
+        sb.fetch(f"file://{repo}", ref="no_such_branch")

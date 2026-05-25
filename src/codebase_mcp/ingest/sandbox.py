@@ -49,7 +49,7 @@ class Sandbox:
 
     @staticmethod
     def _is_url(source: str) -> bool:
-        return "://" in source or source.endswith(".git") or "@" in source
+        return "://" in source or source.endswith(".git") or ("@" in source and ":" in source)
 
     def _clone(self, source: str, ref: str | None, dest: Path) -> None:
         cmd = ["git", "clone", "--depth", "1"]
