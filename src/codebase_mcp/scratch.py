@@ -9,7 +9,7 @@ from pathlib import Path
 from library.runner import _worker_env
 
 
-@dataclass
+@dataclass(frozen=True)
 class ScratchResult:
     exit_code: int | None
     stdout: str

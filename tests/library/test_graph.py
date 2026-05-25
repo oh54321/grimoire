@@ -163,3 +163,20 @@ def test_public_reexports():
         "new_node_id",
     ]:
         assert hasattr(library, name), f"missing public export: {name}"
+
+
+def test_update_node_keeps_node_in_parent_children(tmp_path: Path):
+    from library.ids import new_node_id
+    g = Graph.open(tmp_path)
+    rid = new_node_id()
+    g.add_node(FolderNode(node_id=rid, name="root", description="r", parent_id=None))
+    cid = new_node_id()
+    g.add_node(CodeNode(node_id=cid, name="child", description="c", parent_id=rid))
+    parent = g.get(rid)
+    parent.children.add(cid)
+    g.update_node(parent)
+    assert cid in g.children_of(rid)
+    child = g.get(cid)
+    child.description = "changed"
+    g.update_node(child)
+    assert cid in g.children_of(rid)  # must NOT be dropped by update_node

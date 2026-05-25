@@ -29,3 +29,10 @@ def test_temp_file_is_cleaned_up(tmp_path):
     _runner(tmp_path).run("print('x')")
     leftovers = list((tmp_path).glob("_scratch_*.py"))
     assert leftovers == []
+
+
+def test_import_lines_are_prepended(tmp_path):
+    r = _runner(tmp_path)
+    res = r.run("print(VALUE)", import_lines=("VALUE = 42",))
+    assert res.exit_code == 0
+    assert "42" in res.stdout
