@@ -132,6 +132,14 @@ def test_run_tests_end_to_end_with_dependency(tmp_path: Path):
     assert updated.tests[0].status is TestStatus.PASSING
 
 
+def test_graph_exposes_config(tmp_path):
+    from library.graph import Graph
+    from library.config import LibraryConfig
+    g = Graph.open(tmp_path, min_tests_per_method=2)
+    assert isinstance(g.config, LibraryConfig)
+    assert g.config.min_tests_per_method == 2
+
+
 def test_public_reexports():
     """Top-level package re-exports the public surface."""
     import library

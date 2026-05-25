@@ -76,6 +76,10 @@ class Graph:
         self._index = _Index()
         self._rebuild_index()
 
+    @property
+    def config(self) -> LibraryConfig:
+        return self._config
+
     @classmethod
     def open(cls, root: Path, **config_overrides: Any) -> "Graph":
         cfg = LibraryConfig.load(root)
