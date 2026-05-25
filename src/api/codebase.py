@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 
@@ -22,7 +23,7 @@ def _count_tests(tests: str) -> int:
     except SyntaxError:
         return 0
     return sum(
-        1 for n in ast.walk(tree)
+        1 for n in tree.body
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         and n.name.startswith("test_")
     )
@@ -118,7 +119,7 @@ class Codebase:
     def load_tests(self, node_id) -> str:
         return self._graph.get_tests(node_id)
 
-    def ensure_built(self, node_ids) -> None:
+    def ensure_built(self, node_ids: Iterable[str]) -> None:
         for nid in node_ids:
             self._graph.ensure_built(nid)
 
@@ -172,7 +173,7 @@ class Codebase:
         return nid
 
     def move(self, node_ids, new_parent_id) -> None:
-        ids = [node_ids] if isinstance(node_ids, str) else list(node_ids)
+        ids = list(dict.fromkeys([node_ids] if isinstance(node_ids, str) else node_ids))
         if not isinstance(self._graph.get(new_parent_id), FolderNode):
             raise InvalidMove(new_parent_id, new_parent_id, "target-not-folder")
         # validate every move before mutating anything (all-or-nothing)

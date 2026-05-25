@@ -99,3 +99,34 @@ def test_ensure_built_materializes_build_file(tmp_path):
     (tmp_path / "build" / f"{nid}.py").unlink()
     cb.ensure_built([nid])
     assert (tmp_path / "build" / f"{nid}.py").exists()
+
+
+def test_move_dedupes_repeated_ids(tmp_path):
+    cb = _open(tmp_path, max_folder_children=2)
+    dest = cb.make_folder("dest")
+    a = cb.make_folder("a")
+    cb.move([a, a, a], dest)            # duplicates must not blow the cap or double-move
+    assert cb.children_of(dest) == {a}
+
+
+def test_count_tests_ignores_nested_defs(tmp_path):
+    cb = _open(tmp_path, min_tests_per_method=2)
+    nid = cb.add_method("inc", "add one")
+    # one real top-level test + a nested def test_x that must NOT count -> only 1 counts -> reject
+    tests = (
+        "def test_a():\n"
+        "    def test_nested():\n"
+        "        assert False\n"
+        "    assert inc(1) == 2\n"
+    )
+    with pytest.raises(ImplementationFailed) as ei:
+        cb.implement(nid, "def inc(x):\n    return x + 1\n", tests)
+    assert "need >= 2" in str(ei.value)
+
+
+def test_implement_syntax_error_in_tests_counts_zero(tmp_path):
+    cb = _open(tmp_path, min_tests_per_method=1)
+    nid = cb.add_method("inc", "add one")
+    with pytest.raises(ImplementationFailed) as ei:
+        cb.implement(nid, "def inc(x):\n    return x + 1\n", "def test_a(:\n  pass\n")  # syntax error
+    assert "need >= 1" in str(ei.value)
