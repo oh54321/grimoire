@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -253,6 +254,27 @@ class Codebase:
             else:
                 report.failed.append(nid)
         return report
+
+    def implement(self, node_id, code, tests) -> ImplementResult:
+        node = self._graph.get(node_id)
+        if not isinstance(node, CodeNode):
+            raise ApiError(f"{node_id} is not a code node")
+        # Clear __pycache__ so the warm pytest worker picks up the new code
+        # rather than serving stale bytecode from a prior trial in this session.
+        _pycache = self._root / "build" / "__pycache__"
+        if _pycache.exists():
+            shutil.rmtree(_pycache, ignore_errors=True)
+        results = self._graph.trial_run(node_id, code, tests)
+        passing = bool(results) and all(r.status == TestStatus.PASSING for r in results)
+        if not passing:
+            self._graph.discard_trial(node_id)
+            detail = next((r.detail for r in results if r.detail), None) or (
+                "no tests defined" if not results else "tests failed")
+            raise ImplementationFailed(node_id, results=results, detail=detail)
+        node.tests = [Test(name=r.name, status=r.status) for r in results]
+        self._graph.update_node(node, code=code, tests=tests)
+        self._graph.ensure_built(node_id)
+        return ImplementResult(node_id=node_id, results=results, all_passing=True)
 
     def search(self, query, *, page=0, page_size=10, tags=(), folders=(),
                object_types=()) -> SearchPage:

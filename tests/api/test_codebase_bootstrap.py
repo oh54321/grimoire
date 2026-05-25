@@ -21,3 +21,13 @@ def test_reopen_reuses_root(tmp_path):
     rid = cb1.root_id
     cb2 = _open(tmp_path)
     assert cb2.root_id == rid
+
+
+def test_reindex_when_index_missing(tmp_path):
+    import shutil
+    cb = _open(tmp_path)
+    fid = cb.make_folder("utils")
+    shutil.rmtree(tmp_path / "index", ignore_errors=True)
+    cb2 = _open(tmp_path)
+    hits = cb2.search("utils", folders=()).hits
+    assert any(h.node_id == fid for h in hits)
