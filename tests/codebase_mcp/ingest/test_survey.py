@@ -29,13 +29,22 @@ def test_survey_extracts_symbols(tmp_path):
     by_q = {s.qualname: s for s in symbols}
 
     assert by_q["ping"].kind == "function"
-    assert by_q["ping"].signature == "def ping(host: str)"
+    assert by_q["ping"].signature == "def ping(host: str) -> bool"
     assert by_q["ping"].doc_first_line == "Ping a host."
     assert by_q["ping"].mcp_tool is True
 
     assert by_q["_secret"].mcp_tool is False
     assert by_q["Client"].kind == "class"
     assert by_q["Client.send"].kind == "method"
-    assert by_q["Client.send"].signature == "def send(self, msg: str)"
+    assert by_q["Client.send"].signature == "def send(self, msg: str) -> None"
 
     assert any(s.endswith("notes.txt") for s in skipped)
+
+
+def test_survey_skips_unparseable_py(tmp_path):
+    root = tmp_path / "src"
+    root.mkdir()
+    (root / "broken.py").write_text("def (")   # SyntaxError
+    symbols, skipped = survey(root)
+    assert symbols == []
+    assert any(s.endswith("broken.py") for s in skipped)

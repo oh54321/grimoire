@@ -49,7 +49,8 @@ def _module_symbols(tree: ast.Module, rel: str) -> list[Symbol]:
 
 
 def _func(node: ast.FunctionDef | ast.AsyncFunctionDef, rel: str, qualname: str, kind: str) -> Symbol:
-    sig = f"def {node.name}({ast.unparse(node.args)})"
+    ret = f" -> {ast.unparse(node.returns)}" if node.returns else ""
+    sig = f"def {node.name}({ast.unparse(node.args)}){ret}"
     return Symbol(rel, qualname, kind, sig, _doc(node), _is_tool(node))
 
 
