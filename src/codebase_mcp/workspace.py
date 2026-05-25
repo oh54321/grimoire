@@ -3,10 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from api.codebase import Codebase
-from library import FolderNode, Node
+from api.errors import ApiError, ImplementationFailed, InvalidMove
+from library import BuildError, FolderNode, Node
 
 from codebase_mcp.config import McpConfig
 from codebase_mcp.scratch import ScratchRunner
+
+_KINDS = {"class", "method", "executable"}
 
 
 class Workspace:
@@ -119,3 +122,52 @@ class Workspace:
             return d
 
         return build(fid)
+
+    # ---- create + build ----
+    def define(self, kind: str, name: str, description: str, *, parent: str | None = None,
+               dependencies: list[str] | None = None, tags: list[str] | None = None,
+               searchable: bool = True) -> dict:
+        if kind not in _KINDS:
+            return {"ok": False, "reason": "bad-kind",
+                    "detail": f"kind must be one of {sorted(_KINDS)}"}
+        try:
+            nid = self._cb.define_abstraction(
+                name, description, kind, parent_id=parent,
+                dependencies=tuple(dependencies or ()), tags=tuple(tags or ()),
+                searchable=searchable)
+        except InvalidMove as e:
+            return self._invalid_move(e)
+        except ApiError as e:
+            return {"ok": False, "reason": "api-error", "detail": str(e)}
+        return {"ok": True, "id": nid}
+
+    def implement(self, node_id: str, code: str, tests: str) -> dict:
+        try:
+            res = self._cb.implement(node_id, code, tests)
+        except ImplementationFailed as e:
+            return {"ok": False, "reason": "tests-failed", "detail": e.detail,
+                    "required_tests": self._config.min_tests,
+                    "failures": [{"name": r.name, "detail": r.detail}
+                                 for r in e.results if r.status.name != "PASSING"]}
+        except BuildError as e:
+            return {"ok": False, "reason": "build-error", "detail": str(e)}
+        except ApiError as e:
+            return {"ok": False, "reason": "api-error", "detail": str(e)}
+        return {"ok": True, "id": res.node_id,
+                "tests": [{"name": r.name, "status": r.status.value} for r in res.results]}
+
+    def dirty(self) -> dict:
+        return {"nodes": [self._stub(nid) for nid in sorted(self._cb.dirty())]}
+
+    def rebuild(self, node_id: str | None = None) -> dict:
+        rep = self._cb.rebuild(node_id)
+        return {"rebuilt": rep.rebuilt, "passed": rep.passed,
+                "failed": rep.failed, "skipped": rep.skipped}
+
+    def _invalid_move(self, e: InvalidMove) -> dict:
+        if e.reason == "folder-full":
+            cap = self._config.max_folder_children
+            return {"ok": False, "reason": "folder-full", "folder_id": e.node_id, "cap": cap,
+                    "hint": (f"folder is full (cap {cap}). Create a subfolder with make_folder "
+                             "and move() related nodes into it, or move some children out, then retry.")}
+        return {"ok": False, "reason": e.reason, "node_id": e.node_id, "target_id": e.target_id}
