@@ -59,3 +59,19 @@ def test_dirty_and_rebuild(tmp_path):
                  "def test_a():\n    assert inc(1) == 2\n")
     report = ws.rebuild()
     assert "rebuilt" in report and "failed" in report
+
+
+def test_is_tool_define_search_view_and_toggle(tmp_path):
+    ws = _ws(tmp_path)
+    t = ws.define("method", "runit", "a tool")["id"]
+    h = ws.define("method", "helpit", "a helper", is_tool=False)["id"]
+    assert ws.view(t)["is_tool"] is True
+    assert ws.view(h)["is_tool"] is False
+    tools = {x["id"] for x in ws.search("thing", is_tool=True)["hits"]}
+    helpers = {x["id"] for x in ws.search("thing", is_tool=False)["hits"]}
+    assert t in tools and h not in tools
+    assert h in helpers and t not in helpers
+    assert ws.mark_helper(t)["is_tool"] is False
+    assert t in {x["id"] for x in ws.search("thing", is_tool=False)["hits"]}
+    assert ws.mark_tool(t)["is_tool"] is True
+    assert t in {x["id"] for x in ws.search("thing", is_tool=True)["hits"]}

@@ -45,10 +45,12 @@ class Workspace:
     def search(self, query: str, *, tags: list[str] | None = None,
                object_types: list[str] | None = None,
                folders: list[str] | None = None, page: int = 0,
-               include_hidden: bool = False) -> dict:
+               include_hidden: bool = False,
+               is_tool: bool | None = None) -> dict:
         pg = self._cb.search(query, page=page, tags=tuple(tags or ()),
                              object_types=tuple(object_types or ()),
-                             folders=tuple(folders or ()), include_hidden=include_hidden)
+                             folders=tuple(folders or ()), include_hidden=include_hidden,
+                             is_tool=is_tool)
         return {
             "query": pg.query, "page": pg.page, "num_pages": pg.num_pages, "total": pg.total,
             "hits": [{"id": h.node_id, "kind": h.kind, "name": h.name,
@@ -95,6 +97,7 @@ class Workspace:
         return {
             "id": node_id, "kind": node.object_type, "name": node.name,
             "description": node.description, "searchable": node.searchable,
+            "is_tool": node.is_tool,
             "dependencies": [{"id": d, "name": self._cb.load(d).name}
                              for d in sorted(node.dependencies)],
             "tags": sorted(t.text for t in node.tags),
@@ -127,7 +130,7 @@ class Workspace:
     # ---- create + build ----
     def define(self, kind: str, name: str, description: str, *, parent: str | None = None,
                dependencies: list[str] | None = None, tags: list[str] | None = None,
-               searchable: bool = True) -> dict:
+               searchable: bool = True, is_tool: bool = True) -> dict:
         if kind not in _KINDS:
             return {"ok": False, "reason": "bad-kind",
                     "detail": f"kind must be one of {sorted(_KINDS)}"}
@@ -135,7 +138,7 @@ class Workspace:
             nid = self._cb.define_abstraction(
                 name, description, kind, parent_id=parent,
                 dependencies=tuple(dependencies or ()), tags=tuple(tags or ()),
-                searchable=searchable)
+                searchable=searchable, is_tool=is_tool)
         except InvalidMove as e:
             return self._invalid_move(e)
         except ApiError as e:
@@ -211,6 +214,14 @@ class Workspace:
     def show(self, node_id: str) -> dict:
         self._cb.set_searchable(node_id, True)
         return {"ok": True, "id": node_id, "searchable": True}
+
+    def mark_tool(self, node_id: str) -> dict:
+        self._cb.set_is_tool(node_id, True)
+        return {"ok": True, "id": node_id, "is_tool": True}
+
+    def mark_helper(self, node_id: str) -> dict:
+        self._cb.set_is_tool(node_id, False)
+        return {"ok": True, "id": node_id, "is_tool": False}
 
     def health(self) -> dict:
         cap = self._config.max_folder_children
