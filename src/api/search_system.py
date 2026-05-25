@@ -69,8 +69,11 @@ class SearchSystem:
         self._cache.clear()
 
     # ---- query helpers ----
-    def _any_groups(self, object_types: set[str], folders: set[str]):
+    def _any_groups(self, tags: set[str], object_types: set[str], folders: set[str]) -> list[set[str]]:
+        # tags are RAW user tags (no `@` prefix), unlike the `@in:`/`@kind:` composite groups.
         groups = []
+        if tags:
+            groups.append(set(tags))
         if folders:
             groups.append({f"@in:{f}" for f in folders})
         if object_types:
@@ -84,10 +87,11 @@ class SearchSystem:
 
     def search(self, query: str, *, n: int = 10, tags: set[str] = frozenset(),
                object_types: set[str] = frozenset(),
-               folders: set[str] = frozenset()) -> list[SearchHit]:
+               folders: set[str] = frozenset(),
+               require_all: set[str] = frozenset()) -> list[SearchHit]:
         raw = self._nodes.search_filtered(
-            query, n, all_tags=set(tags),
-            any_groups=self._any_groups(set(object_types), set(folders)),
+            query, n, all_tags=set(require_all),
+            any_groups=self._any_groups(set(tags), set(object_types), set(folders)),
         )
         return [self._hit(v, s) for v, s in raw]
 
@@ -118,14 +122,15 @@ class SearchSystem:
 
     def search_page(self, query: str, *, page: int = 0, page_size: int = 10,
                     tags: set[str] = frozenset(), object_types: set[str] = frozenset(),
-                    folders: set[str] = frozenset()) -> SearchPage:
+                    folders: set[str] = frozenset(),
+                    require_all: set[str] = frozenset()) -> SearchPage:
         key = ("nodes", query, frozenset(tags), frozenset(object_types),
-               frozenset(folders), page_size)
+               frozenset(folders), page_size, frozenset(require_all))
         plist = self._cache_get(key)
         if plist is None:
             raw = self._nodes.search_filtered(
-                query, len(self._nodes), all_tags=set(tags),
-                any_groups=self._any_groups(set(object_types), set(folders)),
+                query, len(self._nodes), all_tags=set(require_all),
+                any_groups=self._any_groups(set(tags), set(object_types), set(folders)),
             )
             plist = PagedList([self._hit(v, s) for v, s in raw], page_size)
             self._cache_put(key, plist)

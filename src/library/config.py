@@ -14,6 +14,8 @@ class LibraryConfig:
     tokenizer_encoding: str = "cl100k_base"
     use_test_worker: bool = True
     test_timeout_seconds: float = 60.0
+    min_tests_per_method: int = 0
+    max_folder_children: int = 0
 
     @classmethod
     def load(cls, root: Path) -> "LibraryConfig":

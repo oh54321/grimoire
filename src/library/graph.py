@@ -33,11 +33,10 @@ class _Index:
             for dep_id in node.dependencies:
                 self.dependents.setdefault(dep_id, set()).add(nid)
 
-    def remove(self, node: Node) -> None:
+    def remove(self, node: Node, *, unlink_from_parent: bool = False) -> None:
         nid = node.node_id
         self.parent.pop(nid, None)
-        # remove from parent's children set
-        if node.parent_id and node.parent_id in self.children:
+        if unlink_from_parent and node.parent_id and node.parent_id in self.children:
             self.children[node.parent_id].discard(nid)
         self.children.pop(nid, None)
         # remove from tags
@@ -75,6 +74,10 @@ class Graph:
         self._config = config
         self._index = _Index()
         self._rebuild_index()
+
+    @property
+    def config(self) -> LibraryConfig:
+        return self._config
 
     @classmethod
     def open(cls, root: Path, **config_overrides: Any) -> "Graph":
@@ -158,7 +161,7 @@ class Graph:
         node = self._store.load(node_id)
         self._store.delete(node_id)
         self._cache.invalidate(node_id)
-        self._index.remove(node)
+        self._index.remove(node, unlink_from_parent=True)
         self._builder.remove(node_id)
 
     # ----- build + run -----

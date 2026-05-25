@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 
@@ -13,6 +15,18 @@ from api.results import ImplementResult, RebuildReport, SearchPage, TagPage
 from api.search_system import SearchSystem
 
 _NO_VEC = np.zeros(0, dtype=float)
+
+
+def _count_tests(tests: str) -> int:
+    try:
+        tree = ast.parse(tests)
+    except SyntaxError:
+        return 0
+    return sum(
+        1 for n in tree.body
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name.startswith("test_")
+    )
 
 
 class Codebase:
@@ -52,8 +66,11 @@ class Codebase:
     def _composite_tags(self, node: Node) -> set[str]:
         tags = {t.text for t in node.tags}
         tags.add(f"@kind:{self._kind(node)}")
+        tags.add(f"@searchable:{str(node.searchable).lower()}")
         for anc in self._ancestors(node.node_id):
             tags.add(f"@in:{anc}")
+        if isinstance(node, CodeNode):
+            tags.add(f"@tool:{str(node.is_tool).lower()}")
         return tags
 
     def _index_node(self, node: Node) -> None:
@@ -105,6 +122,10 @@ class Codebase:
     def load_tests(self, node_id) -> str:
         return self._graph.get_tests(node_id)
 
+    def ensure_built(self, node_ids: Iterable[str]) -> None:
+        for nid in node_ids:
+            self._graph.ensure_built(nid)
+
     def children_of(self, node_id) -> set[str]:
         return self._graph.children_of(node_id)
 
@@ -134,35 +155,51 @@ class Codebase:
         parent.children.discard(node_id)
         self._graph.update_node(parent)
 
-    def make_folder(self, name, *, parent_id=None, description="", tags=()) -> str:
+    def _check_capacity(self, parent_id: str, adding: int = 1) -> None:
+        cap = self._graph.config.max_folder_children
+        if cap <= 0:
+            return
+        if len(self._graph.children_of(parent_id)) + adding > cap:
+            raise InvalidMove(parent_id, parent_id, "folder-full")
+
+    def make_folder(self, name, *, parent_id=None, description="", tags=(),
+                    searchable: bool = True) -> str:
         parent_id = parent_id or self._root_id
         if not isinstance(self._graph.get(parent_id), FolderNode):
             raise InvalidMove(parent_id, parent_id, "target-not-folder")
+        self._check_capacity(parent_id)
         nid = new_node_id()
         folder = FolderNode(node_id=nid, name=name, description=description,
-                            parent_id=parent_id, tags=self._tagset(tags))
+                            parent_id=parent_id, tags=self._tagset(tags),
+                            searchable=searchable)
         self._graph.add_node(folder)
         self._attach_to_parent(nid, parent_id)
         self._index_node(folder)
         return nid
 
-    def move(self, node_id, new_parent_id) -> None:
-        if node_id == self._root_id:
-            raise InvalidMove(node_id, new_parent_id, "move-root")
+    def move(self, node_ids, new_parent_id) -> None:
+        ids = list(dict.fromkeys([node_ids] if isinstance(node_ids, str) else node_ids))
         if not isinstance(self._graph.get(new_parent_id), FolderNode):
-            raise InvalidMove(node_id, new_parent_id, "target-not-folder")
-        if new_parent_id == node_id or new_parent_id in self._subtree_ids(node_id):
-            raise InvalidMove(node_id, new_parent_id, "into-own-subtree")
-        node = self._graph.get(node_id)
-        old_parent = node.parent_id
-        if old_parent is not None:
-            self._detach_from_parent(node_id, old_parent)
-        node.parent_id = new_parent_id
-        self._graph.update_node(node)
-        self._attach_to_parent(node_id, new_parent_id)
-        # re-tag moved node + descendants (their @in: ancestry changed); no re-embed
-        for nid in [node_id, *self._subtree_ids(node_id)]:
-            self._search.update_tags(nid, self._composite_tags(self._graph.get(nid)))
+            raise InvalidMove(new_parent_id, new_parent_id, "target-not-folder")
+        # validate every move before mutating anything (all-or-nothing)
+        for nid in ids:
+            if nid == self._root_id:
+                raise InvalidMove(nid, new_parent_id, "move-root")
+            if new_parent_id == nid or new_parent_id in self._subtree_ids(nid):
+                raise InvalidMove(nid, new_parent_id, "into-own-subtree")
+        existing = self._graph.children_of(new_parent_id)
+        incoming = [nid for nid in ids if nid not in existing]
+        self._check_capacity(new_parent_id, adding=len(incoming))
+        for nid in ids:
+            node = self._graph.get(nid)
+            old_parent = node.parent_id
+            if old_parent is not None:
+                self._detach_from_parent(nid, old_parent)
+            node.parent_id = new_parent_id
+            self._graph.update_node(node)
+            self._attach_to_parent(nid, new_parent_id)
+            for sub in [nid, *self._subtree_ids(nid)]:
+                self._search.update_tags(sub, self._composite_tags(self._graph.get(sub)))
 
     def rename(self, node_id, new_name) -> None:
         node = self._graph.get(node_id)
@@ -180,14 +217,17 @@ class Codebase:
         self._search.remove_node(node_id)
 
     def define_abstraction(self, name, description, object_type, *,
-                           parent_id=None, dependencies=(), tags=()) -> str:
+                           parent_id=None, dependencies=(), tags=(),
+                           searchable: bool = True, is_tool: bool = True) -> str:
         parent_id = parent_id or self._root_id
         if not isinstance(self._graph.get(parent_id), FolderNode):
             raise InvalidMove(parent_id, parent_id, "target-not-folder")
+        self._check_capacity(parent_id)
         nid = new_node_id()
         node = CodeNode(node_id=nid, name=name, description=description,
                         parent_id=parent_id, tags=self._tagset(tags),
-                        dependencies=set(dependencies), object_type=object_type, tests=[])
+                        dependencies=set(dependencies), object_type=object_type, tests=[],
+                        searchable=searchable, is_tool=is_tool)
         self._graph.add_node(node)
         self._attach_to_parent(nid, parent_id)
         self._index_node(node)
@@ -258,6 +298,12 @@ class Codebase:
         node = self._graph.get(node_id)
         if not isinstance(node, CodeNode):
             raise ApiError(f"{node_id} is not a code node")
+        floor = self._graph.config.min_tests_per_method
+        if floor > 0:
+            got = _count_tests(tests)
+            if got < floor:
+                raise ImplementationFailed(
+                    node_id, results=[], detail=f"got {got} tests, need >= {floor}")
         results = self._graph.trial_run(node_id, code, tests)
         passing = bool(results) and all(r.status == TestStatus.PASSING for r in results)
         if not passing:
@@ -270,11 +316,28 @@ class Codebase:
         self._graph.ensure_built(node_id)
         return ImplementResult(node_id=node_id, results=results, all_passing=True)
 
+    def set_searchable(self, node_id: str, value: bool) -> None:
+        node = self._graph.get(node_id)
+        node.searchable = bool(value)
+        self._graph.update_node(node)
+        self._search.update_tags(node_id, self._composite_tags(node))
+
+    def set_is_tool(self, node_id: str, value: bool) -> None:
+        node = self._graph.get(node_id)
+        if not isinstance(node, CodeNode):
+            raise ApiError(f"{node_id} is not a code node")
+        node.is_tool = bool(value)
+        self._graph.update_node(node)
+        self._search.update_tags(node_id, self._composite_tags(node))
+
     def search(self, query, *, page=0, page_size=10, tags=(), folders=(),
-               object_types=()) -> SearchPage:
+               object_types=(), include_hidden=False, is_tool: bool | None = None) -> SearchPage:
+        require_all = set() if include_hidden else {"@searchable:true"}
+        if is_tool is not None:
+            require_all.add(f"@tool:{str(is_tool).lower()}")
         return self._search.search_page(
             query, page=page, page_size=page_size, tags=set(tags),
-            object_types=set(object_types), folders=set(folders))
+            object_types=set(object_types), folders=set(folders), require_all=require_all)
 
     def search_tags(self, query, *, page=0, page_size=10) -> TagPage:
         return self._search.search_tags_page(query, page=page, page_size=page_size)

@@ -39,3 +39,16 @@ def test_load_ignores_unknown_keys(tmp_path: Path):
     (tmp_path / "config.json").write_text(json.dumps({"max_cache_mb": 5, "future_key": "ignored"}))
     cfg = LibraryConfig.load(tmp_path)
     assert cfg.max_cache_mb == 5
+
+
+def test_policy_fields_default_zero_and_roundtrip(tmp_path):
+    from library.config import LibraryConfig
+    cfg = LibraryConfig(root_path=tmp_path)
+    assert cfg.min_tests_per_method == 0
+    assert cfg.max_folder_children == 0
+
+    cfg2 = LibraryConfig(root_path=tmp_path, min_tests_per_method=3, max_folder_children=7)
+    cfg2.save()
+    loaded = LibraryConfig.load(tmp_path)
+    assert loaded.min_tests_per_method == 3
+    assert loaded.max_folder_children == 7

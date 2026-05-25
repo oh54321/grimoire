@@ -147,3 +147,42 @@ def test_size_on_disk_is_positive(tmp_path: Path):
     node = CodeNode(node_id="a", name="f", description="x")
     store.save(node, code="def f(): pass\n")
     assert store.size_on_disk("a") > 0
+
+
+def test_searchable_roundtrips(tmp_path):
+    from library.config import LibraryConfig
+    from library.store import NodeStore
+    from library.nodes import CodeNode
+    store = NodeStore(LibraryConfig(root_path=tmp_path))
+    store.save(CodeNode(node_id="c1", name="foo", description="d", searchable=False))
+    assert store.load("c1").searchable is False
+
+
+def test_missing_searchable_key_defaults_true(tmp_path):
+    import json
+    from library.config import LibraryConfig
+    from library.store import NodeStore
+    from library.nodes import CodeNode
+    store = NodeStore(LibraryConfig(root_path=tmp_path))
+    store.save(CodeNode(node_id="c2", name="bar", description="d"))
+    meta = tmp_path / "c2" / "meta.json"
+    data = json.loads(meta.read_text())
+    data.pop("searchable", None)
+    meta.write_text(json.dumps(data))
+    assert store.load("c2").searchable is True
+
+
+def test_is_tool_roundtrips_and_defaults_true(tmp_path):
+    import json
+    from library.config import LibraryConfig
+    from library.store import NodeStore
+    from library.nodes import CodeNode
+    store = NodeStore(LibraryConfig(root_path=tmp_path))
+    store.save(CodeNode(node_id="t1", name="foo", description="d", is_tool=False))
+    assert store.load("t1").is_tool is False
+    store.save(CodeNode(node_id="t2", name="bar", description="d"))
+    meta = tmp_path / "t2" / "meta.json"
+    data = json.loads(meta.read_text())
+    data.pop("is_tool", None)
+    meta.write_text(json.dumps(data))
+    assert store.load("t2").is_tool is True

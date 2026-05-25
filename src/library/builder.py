@@ -119,8 +119,9 @@ class Builder:
             _scan_forbidden_build_imports(node_id, tests_text, where="tests.py")
 
         entry = self._manifest.get(node_id)
-        if entry is not None and entry.code_hash == code_hash and entry.dep_hashes == current_dep_hashes:
-            # Code+deps unchanged; nothing to rebuild for this node
+        build_file_exists = (self.build_root / f"{node_id}.py").exists()
+        if entry is not None and entry.code_hash == code_hash and entry.dep_hashes == current_dep_hashes and build_file_exists:
+            # Code+deps unchanged and output file present; nothing to rebuild for this node
             return code_hash
 
         self._build_root_init()

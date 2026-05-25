@@ -51,6 +51,7 @@ def _node_to_dict(node: Node) -> dict[str, Any]:
         "description": node.description,
         "parent_id": node.parent_id,
         "tags": _serialize_tags(node.tags),
+        "searchable": node.searchable,
     }
     if isinstance(node, FolderNode):
         base["children"] = sorted(node.children)
@@ -58,6 +59,7 @@ def _node_to_dict(node: Node) -> dict[str, Any]:
         base["dependencies"] = sorted(node.dependencies)
         base["object_type"] = node.object_type
         base["tests"] = _serialize_tests(node.tests)
+        base["is_tool"] = node.is_tool
     return base
 
 
@@ -69,6 +71,7 @@ def _dict_to_node(d: dict[str, Any]) -> Node:
         description=d["description"],
         parent_id=d.get("parent_id"),
         tags=_deserialize_tags(d.get("tags", [])),
+        searchable=d.get("searchable", True),
     )
     if node_type == "folder":
         return FolderNode(**common, children=set(d.get("children", [])))
@@ -78,6 +81,7 @@ def _dict_to_node(d: dict[str, Any]) -> Node:
             dependencies=set(d.get("dependencies", [])),
             object_type=d.get("object_type", "method"),
             tests=_deserialize_tests(d.get("tests", [])),
+            is_tool=d.get("is_tool", True),
         )
     raise CorruptMetaFile(d.get("node_id", "<unknown>"), f"unknown node_type: {node_type!r}")
 

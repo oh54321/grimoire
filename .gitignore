@@ -9,3 +9,9 @@ build/
 .venv/
 venv/
 .idea/
+
+# design docs (specs/plans) kept local, not published
+docs/
+
+# editor settings
+.vscode/
