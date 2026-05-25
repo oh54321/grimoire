@@ -110,3 +110,80 @@ class Codebase:
 
     def list_tags(self) -> set[str]:
         return self._search.list_tags()
+
+    # ---- folder operations ----
+    def _subtree_ids(self, node_id: str) -> set[str]:
+        """All descendant ids of node_id (excludes node_id itself)."""
+        out: set[str] = set()
+        frontier = list(self._graph.children_of(node_id))
+        while frontier:
+            nid = frontier.pop()
+            if nid in out:
+                continue
+            out.add(nid)
+            frontier.extend(self._graph.children_of(nid))
+        return out
+
+    def _attach_to_parent(self, node_id: str, parent_id: str) -> None:
+        parent = self._graph.get(parent_id)
+        parent.children.add(node_id)
+        self._graph.update_node(parent)
+
+    def _detach_from_parent(self, node_id: str, parent_id: str) -> None:
+        parent = self._graph.get(parent_id)
+        parent.children.discard(node_id)
+        self._graph.update_node(parent)
+
+    def make_folder(self, name, *, parent_id=None, description="", tags=()) -> str:
+        parent_id = parent_id or self._root_id
+        if not isinstance(self._graph.get(parent_id), FolderNode):
+            raise InvalidMove(parent_id, parent_id, "target-not-folder")
+        nid = new_node_id()
+        folder = FolderNode(node_id=nid, name=name, description=description,
+                            parent_id=parent_id, tags=self._tagset(tags))
+        self._graph.add_node(folder)
+        self._attach_to_parent(nid, parent_id)
+        self._index_node(folder)
+        return nid
+
+    def move(self, node_id, new_parent_id) -> None:
+        if node_id == self._root_id:
+            raise InvalidMove(node_id, new_parent_id, "move-root")
+        if not isinstance(self._graph.get(new_parent_id), FolderNode):
+            raise InvalidMove(node_id, new_parent_id, "target-not-folder")
+        if new_parent_id == node_id or new_parent_id in self._subtree_ids(node_id):
+            raise InvalidMove(node_id, new_parent_id, "into-own-subtree")
+        node = self._graph.get(node_id)
+        old_parent = node.parent_id
+        if old_parent is not None:
+            self._detach_from_parent(node_id, old_parent)
+        node.parent_id = new_parent_id
+        self._graph.update_node(node)
+        self._attach_to_parent(node_id, new_parent_id)
+        # re-tag descendants (their @in: ancestry changed); no re-embed
+        for nid in self._subtree_ids(node_id):
+            self._search.update_tags(nid, self._composite_tags(self._graph.get(nid)))
+
+    def rename(self, node_id, new_name) -> None:
+        node = self._graph.get(node_id)
+        node.name = new_name
+        self._graph.update_node(node)
+        self._index_node(node)
+
+    def remove(self, node_id) -> None:
+        node = self._graph.get(node_id)
+        if isinstance(node, FolderNode) and node.children:
+            raise ApiError(f"cannot remove non-empty folder {node_id}")
+        if node.parent_id is not None:
+            self._detach_from_parent(node_id, node.parent_id)
+        self._graph.remove_node(node_id)
+        self._search.remove_node(node_id)
+
+    def search(self, query, *, page=0, page_size=10, tags=(), folders=(),
+               object_types=()) -> SearchPage:
+        return self._search.search_page(
+            query, page=page, page_size=page_size, tags=set(tags),
+            object_types=set(object_types), folders=set(folders))
+
+    def search_tags(self, query, *, page=0, page_size=10) -> TagPage:
+        return self._search.search_tags_page(query, page=page, page_size=page_size)
