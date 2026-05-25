@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
+from codebase_mcp.ingest.prompt import build_ingest_prompt
 from codebase_mcp.workspace import Workspace
 
 GUIDANCE = (
@@ -14,6 +15,9 @@ GUIDANCE = (
     "against built nodes. Mark broadly-useful callables as tools (the default) and internal "
     "building blocks as helpers via mark_helper / is_tool=False; search(is_tool=True) finds "
     "tools, search(is_tool=False) finds helpers."
+    " To pull an external MCP server or Python codebase into the library, use the "
+    "`ingest` prompt with a git URL or local path; it walks fetch_source/survey_source/"
+    "read_source then define/implement, and discard_source when done."
 )
 
 TOOL_NAMES = [
@@ -22,6 +26,7 @@ TOOL_NAMES = [
     "define", "implement", "dirty", "rebuild",
     "make_folder", "move", "rename", "remove", "hide", "show", "mark_tool", "mark_helper", "health",
     "run_scratch",
+    "fetch_source", "survey_source", "read_source", "discard_source",
 ]
 
 
@@ -29,6 +34,11 @@ def build_server(workspace: Workspace) -> FastMCP:
     app = FastMCP("haymanbot-codebase", instructions=GUIDANCE)
     for name in TOOL_NAMES:
         app.tool(name=name)(getattr(workspace, name))
+
+    @app.prompt(name="ingest")
+    def ingest(source: str, kind: str = "auto") -> str:
+        return build_ingest_prompt(source, kind=kind)
+
     return app
 
 

@@ -7,6 +7,8 @@ from api.errors import ApiError, ImplementationFailed, InvalidMove
 from library import BuildError, FolderNode, Node
 
 from codebase_mcp.config import McpConfig
+from codebase_mcp.ingest.sandbox import FetchError, Sandbox
+from codebase_mcp.ingest.survey import survey as _survey_fn, read_symbol as _read_symbol
 from codebase_mcp.scratch import ScratchRunner
 
 _KINDS = {"class", "method", "executable"}
@@ -16,10 +18,12 @@ class Workspace:
     """Transport-agnostic core. Owns one Codebase + a ScratchRunner and renders
     JSON-able results. Every MCP tool calls a method here."""
 
-    def __init__(self, cb: Codebase, scratch: ScratchRunner, config: McpConfig) -> None:
+    def __init__(self, cb: Codebase, scratch: ScratchRunner, config: McpConfig,
+                 sandbox: Sandbox) -> None:
         self._cb = cb
         self._scratch = scratch
         self._config = config
+        self._sandbox = sandbox
 
     @classmethod
     def open(cls, config: McpConfig | None = None, *, embedder=None) -> "Workspace":
@@ -30,7 +34,9 @@ class Workspace:
             max_folder_children=config.max_folder_children,
         )
         scratch = ScratchRunner(Path(config.root), timeout=config.scratch_timeout)
-        return cls(cb, scratch, config)
+        sandbox = Sandbox(config.ingest_root, timeout=config.ingest_timeout,
+                          ttl=config.ingest_ttl)
+        return cls(cb, scratch, config, sandbox)
 
     # ---- helpers ----
     @staticmethod
@@ -256,3 +262,41 @@ class Workspace:
         r = self._scratch.run(code, import_lines)
         return {"ok": r.exit_code == 0 and not r.timed_out, "exit_code": r.exit_code,
                 "timed_out": r.timed_out, "stdout": r.stdout, "stderr": r.stderr}
+
+    # ---- ingest (read-only source browse) ----
+    def fetch_source(self, source: str, *, ref: str | None = None) -> dict:
+        try:
+            f = self._sandbox.fetch(source, ref=ref)
+        except FetchError as e:
+            return {"ok": False, "reason": "fetch-failed", "detail": str(e)}
+        note = None if f.file_count else "no Python files found; v1 ingests Python only"
+        return {"ok": True, "session": f.session, "file_count": f.file_count,
+                "looks_like_mcp": f.looks_like_mcp, "top_modules": list(f.top_modules),
+                "note": note}
+
+    def survey_source(self, session: str, *, path: str | None = None) -> dict:
+        root = self._sandbox.path(session)
+        if not root.exists():
+            return {"ok": False, "reason": "no-session", "detail": session}
+        try:
+            symbols, skipped = _survey_fn(root, sub=path)
+        except (OSError, ValueError) as e:
+            return {"ok": False, "reason": "survey-failed", "detail": str(e)}
+        return {"ok": True, "symbols": [
+            {"module": s.module, "qualname": s.qualname, "kind": s.kind,
+             "signature": s.signature, "doc": s.doc_first_line, "mcp_tool": s.mcp_tool}
+            for s in symbols], "skipped": skipped}
+
+    def read_source(self, session: str, path: str, *, symbol: str | None = None) -> dict:
+        root = self._sandbox.path(session)
+        if not root.exists():
+            return {"ok": False, "reason": "no-session", "detail": session}
+        try:
+            code = _read_symbol(root, path, symbol)
+        except (OSError, KeyError) as e:
+            return {"ok": False, "reason": "not-found", "detail": str(e)}
+        return {"ok": True, "code": code}
+
+    def discard_source(self, session: str) -> dict:
+        removed = self._sandbox.discard(session)
+        return {"ok": True, "removed": removed}
