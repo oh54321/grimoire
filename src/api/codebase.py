@@ -147,10 +147,18 @@ class Codebase:
         parent.children.discard(node_id)
         self._graph.update_node(parent)
 
+    def _check_capacity(self, parent_id: str, adding: int = 1) -> None:
+        cap = self._graph.config.max_folder_children
+        if cap <= 0:
+            return
+        if len(self._graph.children_of(parent_id)) + adding > cap:
+            raise InvalidMove(parent_id, parent_id, "folder-full")
+
     def make_folder(self, name, *, parent_id=None, description="", tags=()) -> str:
         parent_id = parent_id or self._root_id
         if not isinstance(self._graph.get(parent_id), FolderNode):
             raise InvalidMove(parent_id, parent_id, "target-not-folder")
+        self._check_capacity(parent_id)
         nid = new_node_id()
         folder = FolderNode(node_id=nid, name=name, description=description,
                             parent_id=parent_id, tags=self._tagset(tags))
@@ -197,6 +205,7 @@ class Codebase:
         parent_id = parent_id or self._root_id
         if not isinstance(self._graph.get(parent_id), FolderNode):
             raise InvalidMove(parent_id, parent_id, "target-not-folder")
+        self._check_capacity(parent_id)
         nid = new_node_id()
         node = CodeNode(node_id=nid, name=name, description=description,
                         parent_id=parent_id, tags=self._tagset(tags),
