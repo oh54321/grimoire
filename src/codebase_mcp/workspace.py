@@ -216,11 +216,17 @@ class Workspace:
         return {"ok": True, "id": node_id, "searchable": True}
 
     def mark_tool(self, node_id: str) -> dict:
-        self._cb.set_is_tool(node_id, True)
+        try:
+            self._cb.set_is_tool(node_id, True)
+        except ApiError as e:
+            return {"ok": False, "reason": "api-error", "detail": str(e)}
         return {"ok": True, "id": node_id, "is_tool": True}
 
     def mark_helper(self, node_id: str) -> dict:
-        self._cb.set_is_tool(node_id, False)
+        try:
+            self._cb.set_is_tool(node_id, False)
+        except ApiError as e:
+            return {"ok": False, "reason": "api-error", "detail": str(e)}
         return {"ok": True, "id": node_id, "is_tool": False}
 
     def health(self) -> dict:

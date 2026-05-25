@@ -75,3 +75,10 @@ def test_is_tool_define_search_view_and_toggle(tmp_path):
     assert t in {x["id"] for x in ws.search("thing", is_tool=False)["hits"]}
     assert ws.mark_tool(t)["is_tool"] is True
     assert t in {x["id"] for x in ws.search("thing", is_tool=True)["hits"]}
+
+
+def test_mark_tool_on_folder_returns_structured_error(tmp_path):
+    ws = _ws(tmp_path)
+    f = ws.make_folder("grp")["id"]
+    out = ws.mark_helper(f)
+    assert out["ok"] is False and out["reason"] == "api-error"
