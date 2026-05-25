@@ -172,7 +172,8 @@ class Workspace:
     def rebuild(self, node_id: str | None = None) -> dict:
         rep = self._cb.rebuild(node_id)
         return {"rebuilt": rep.rebuilt, "passed": rep.passed,
-                "failed": rep.failed, "skipped": rep.skipped}
+                "failed": rep.failed, "skipped": rep.skipped,
+                "incomplete": rep.incomplete}
 
     def _invalid_move(self, e: InvalidMove) -> dict:
         if e.reason == "folder-full":

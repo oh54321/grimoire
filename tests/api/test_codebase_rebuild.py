@@ -6,11 +6,13 @@ def _open(tmp_path):
     return Codebase.open(tmp_path, embedder=FakeEmbedder())
 
 
-def test_rebuild_reports_failures_for_unimplemented(tmp_path):
+def test_rebuild_reports_unimplemented_as_incomplete_not_failed(tmp_path):
     cb = _open(tmp_path)
-    nid = cb.add_method("f", "does f")          # abstraction only -> dirty, unbuildable
+    nid = cb.add_method("f", "does f")          # abstraction only -> defined, never implemented
     report = cb.rebuild()
-    assert nid in report.failed
+    # A never-implemented node is "incomplete" work-in-progress, not a build failure.
+    assert nid in report.incomplete
+    assert nid not in report.failed
     assert nid in cb.dirty()
 
 

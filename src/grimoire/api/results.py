@@ -85,3 +85,4 @@ class RebuildReport:
     passed: list = field(default_factory=list)
     failed: list = field(default_factory=list)
     skipped: list = field(default_factory=list)
+    incomplete: list = field(default_factory=list)  # define'd but never implement'ed

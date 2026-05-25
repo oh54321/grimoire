@@ -1,9 +1,26 @@
 from __future__ import annotations
 
+import functools
+
 from mcp.server.fastmcp import FastMCP
 
 from grimoire.codebase_mcp.ingest.prompt import build_ingest_prompt
 from grimoire.codebase_mcp.workspace import Workspace
+
+
+def _safe_tool(fn):
+    """Backstop: turn any unforeseen exception from a tool into a structured
+    error so the MCP layer never surfaces a raw stack trace to the client.
+    Signature-preserving (functools.wraps) so FastMCP still builds the right
+    input schema from the wrapped method."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:  # noqa: BLE001 — deliberate catch-all backstop
+            return {"ok": False, "reason": "internal-error",
+                    "detail": f"{type(e).__name__}: {e}"}
+    return wrapper
 
 GUIDANCE = (
     "A personal, test-gated library of reusable code. Workflow: discover/search before "
@@ -33,7 +50,7 @@ TOOL_NAMES = [
 def build_server(workspace: Workspace) -> FastMCP:
     app = FastMCP("grimoire", instructions=GUIDANCE)
     for name in TOOL_NAMES:
-        app.tool(name=name)(getattr(workspace, name))
+        app.tool(name=name)(_safe_tool(getattr(workspace, name)))
 
     @app.prompt(name="ingest")
     def ingest(source: str, kind: str = "auto") -> str:

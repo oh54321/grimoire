@@ -27,6 +27,30 @@ def test_classification_tools_registered():
     assert "mark_tool" in TOOL_NAMES and "mark_helper" in TOOL_NAMES
 
 
+def test_safe_tool_returns_structured_error_on_exception():
+    from grimoire.codebase_mcp.server import _safe_tool
+
+    def boom(x: int) -> dict:
+        raise RuntimeError("kaboom")
+
+    out = _safe_tool(boom)(1)
+    assert out["ok"] is False
+    assert out["reason"] == "internal-error"
+    assert "kaboom" in out["detail"]
+
+
+def test_safe_tool_preserves_signature():
+    """The backstop must not change the function signature, or FastMCP would
+    build the wrong input schema for the tool."""
+    import inspect
+    from grimoire.codebase_mcp.server import _safe_tool
+
+    def f(a: int, b: str = "x") -> dict:
+        return {}
+
+    assert inspect.signature(_safe_tool(f)) == inspect.signature(f)
+
+
 def test_move_tool_schema_accepts_list(tmp_path):
     import asyncio
     from grimoire.codebase_mcp.config import McpConfig
