@@ -59,6 +59,23 @@ cd grimoire && pip install .
 </details>
 
 <details>
+<summary>Slim CPU-only install (no CUDA)</summary>
+
+By default `torch` (pulled in by the embedding model) drags in **multiple GB of NVIDIA/CUDA wheels** — dead weight on a machine without an NVIDIA GPU. Install the **CPU build of torch first**, then Grimoire, and pip won't pull the CUDA payload:
+
+```bash
+python -m venv ~/.grimoire/venv && source ~/.grimoire/venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install git+https://github.com/oh54321/grimoire.git
+claude mcp add grimoire --scope user -- ~/.grimoire/venv/bin/grimoire
+```
+
+Or via the install script: `GRIMOIRE_CPU=1 ./install.sh` (also `./install.sh --cpu`).
+
+This removes the CUDA wheels (the largest chunk), but the install is still ~1.4 GB — `torch` (CPU), `scipy`, `scikit-learn`, and `transformers` are inherently large. A genuinely small footprint would need a lighter embedding backend (e.g. ONNX or a remote embeddings API); not yet implemented.
+</details>
+
+<details>
 <summary>Manual MCP client config</summary>
 
 Use the **absolute path** to the installed binary for `command` (find it with `command -v grimoire`) so the server doesn't depend on the client's `PATH`:
