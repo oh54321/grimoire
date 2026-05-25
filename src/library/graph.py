@@ -86,7 +86,11 @@ class Graph:
         store = NodeStore(cfg)
         cache = NodeCache(store, max_bytes=cfg.max_cache_mb * 1024 * 1024, ttl_seconds=cfg.ttl_seconds)
         builder = Builder(store, cache, build_root=root / "build")
-        runner = Runner(build_root=root / "build")
+        runner = Runner(
+            build_root=root / "build",
+            use_worker=cfg.use_test_worker,
+            timeout=cfg.test_timeout_seconds,
+        )
         return cls(store, cache, builder, runner, cfg)
 
     # ----- navigation -----
