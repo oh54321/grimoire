@@ -66,6 +66,7 @@ class Codebase:
     def _composite_tags(self, node: Node) -> set[str]:
         tags = {t.text for t in node.tags}
         tags.add(f"@kind:{self._kind(node)}")
+        tags.add(f"@searchable:{str(node.searchable).lower()}")
         for anc in self._ancestors(node.node_id):
             tags.add(f"@in:{anc}")
         return tags
@@ -159,14 +160,16 @@ class Codebase:
         if len(self._graph.children_of(parent_id)) + adding > cap:
             raise InvalidMove(parent_id, parent_id, "folder-full")
 
-    def make_folder(self, name, *, parent_id=None, description="", tags=()) -> str:
+    def make_folder(self, name, *, parent_id=None, description="", tags=(),
+                    searchable: bool = True) -> str:
         parent_id = parent_id or self._root_id
         if not isinstance(self._graph.get(parent_id), FolderNode):
             raise InvalidMove(parent_id, parent_id, "target-not-folder")
         self._check_capacity(parent_id)
         nid = new_node_id()
         folder = FolderNode(node_id=nid, name=name, description=description,
-                            parent_id=parent_id, tags=self._tagset(tags))
+                            parent_id=parent_id, tags=self._tagset(tags),
+                            searchable=searchable)
         self._graph.add_node(folder)
         self._attach_to_parent(nid, parent_id)
         self._index_node(folder)
@@ -212,7 +215,8 @@ class Codebase:
         self._search.remove_node(node_id)
 
     def define_abstraction(self, name, description, object_type, *,
-                           parent_id=None, dependencies=(), tags=()) -> str:
+                           parent_id=None, dependencies=(), tags=(),
+                           searchable: bool = True) -> str:
         parent_id = parent_id or self._root_id
         if not isinstance(self._graph.get(parent_id), FolderNode):
             raise InvalidMove(parent_id, parent_id, "target-not-folder")
@@ -220,7 +224,8 @@ class Codebase:
         nid = new_node_id()
         node = CodeNode(node_id=nid, name=name, description=description,
                         parent_id=parent_id, tags=self._tagset(tags),
-                        dependencies=set(dependencies), object_type=object_type, tests=[])
+                        dependencies=set(dependencies), object_type=object_type, tests=[],
+                        searchable=searchable)
         self._graph.add_node(node)
         self._attach_to_parent(nid, parent_id)
         self._index_node(node)
@@ -309,11 +314,18 @@ class Codebase:
         self._graph.ensure_built(node_id)
         return ImplementResult(node_id=node_id, results=results, all_passing=True)
 
+    def set_searchable(self, node_id, value) -> None:
+        node = self._graph.get(node_id)
+        node.searchable = bool(value)
+        self._graph.update_node(node)
+        self._search.update_tags(node_id, self._composite_tags(node))
+
     def search(self, query, *, page=0, page_size=10, tags=(), folders=(),
-               object_types=()) -> SearchPage:
+               object_types=(), include_hidden=False) -> SearchPage:
+        require_all = set() if include_hidden else {"@searchable:true"}
         return self._search.search_page(
             query, page=page, page_size=page_size, tags=set(tags),
-            object_types=set(object_types), folders=set(folders))
+            object_types=set(object_types), folders=set(folders), require_all=require_all)
 
     def search_tags(self, query, *, page=0, page_size=10) -> TagPage:
         return self._search.search_tags_page(query, page=page, page_size=page_size)
