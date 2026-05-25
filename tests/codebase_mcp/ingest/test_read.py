@@ -45,3 +45,15 @@ def test_read_class_method(tmp_path):
     text = read_symbol(root, "c.py", "Client.send")
     assert text.strip().startswith("def send(self, msg):")
     assert "class Client" not in text
+
+
+def test_read_symbol_rejects_parent_traversal(tmp_path):
+    root = _mod(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        read_symbol(root, "../../../../etc/passwd")
+
+
+def test_read_symbol_rejects_absolute_path(tmp_path):
+    root = _mod(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        read_symbol(root, "/etc/hosts")

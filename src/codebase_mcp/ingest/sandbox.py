@@ -40,7 +40,7 @@ class Sandbox:
         local = Path(source).expanduser()
         if local.exists():
             self._root.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(local, dest, ignore=_IGNORE)
+            shutil.copytree(local, dest, ignore=_IGNORE, symlinks=True)
         elif self._is_url(source):
             self._clone(source, ref, dest)
         else:
@@ -73,10 +73,10 @@ class Sandbox:
         return False
 
     def _describe(self, session: str, dest: Path) -> Fetched:
-        py = sorted(dest.rglob("*.py"))
+        py = sorted(p for p in dest.rglob("*.py") if not p.is_symlink())
         looks_mcp = any(self._has_marker(p) for p in py)
-        top = sorted(({p.stem for p in dest.glob("*.py")} - {"__init__"})
-                     | {p.parent.name for p in dest.glob("*/__init__.py")})
+        top = sorted(({p.stem for p in dest.glob("*.py") if not p.is_symlink()} - {"__init__"})
+                     | {p.parent.name for p in dest.glob("*/__init__.py") if not p.is_symlink()})
         return Fetched(session, dest, len(py), looks_mcp, tuple(top))
 
     @staticmethod

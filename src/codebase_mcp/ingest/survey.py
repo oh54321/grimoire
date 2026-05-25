@@ -15,12 +15,20 @@ class Symbol:
     mcp_tool: bool
 
 
+def _safe_join(root: Path, rel_path: str) -> Path:
+    """Resolve rel_path under root, rejecting escapes (.. or absolute paths)."""
+    target = (root / rel_path).resolve()
+    if not target.is_relative_to(root.resolve()):
+        raise FileNotFoundError(rel_path)
+    return target
+
+
 def survey(root: Path, sub: str | None = None) -> tuple[list[Symbol], list[str]]:
     """Walk Python files under root, returning (symbols, skipped_files)."""
-    base = root / sub if sub else root
+    base = _safe_join(root, sub) if sub else root
     symbols: list[Symbol] = []
     skipped: list[str] = []
-    for path in sorted(p for p in base.rglob("*") if p.is_file()):
+    for path in sorted(p for p in base.rglob("*") if p.is_file() and not p.is_symlink()):
         rel = str(path.relative_to(root))
         if path.suffix != ".py":
             skipped.append(rel)
@@ -74,8 +82,8 @@ def read_symbol(root: Path, rel_path: str, symbol: str | None = None) -> str:
     A single-symbol slice begins at the 'def'/'class' keyword; any decorators
     (e.g. @app.tool()) are not included.
     """
-    path = root / rel_path
-    text = path.read_text(errors="ignore")
+    target = _safe_join(root, rel_path)
+    text = target.read_text(errors="ignore")
     if symbol is None:
         return text
     tree = ast.parse(text)

@@ -7,7 +7,7 @@ from api.errors import ApiError, ImplementationFailed, InvalidMove
 from library import BuildError, FolderNode, Node
 
 from codebase_mcp.config import McpConfig
-from codebase_mcp.ingest.sandbox import Sandbox, FetchError
+from codebase_mcp.ingest.sandbox import FetchError, Sandbox
 from codebase_mcp.ingest.survey import survey as _survey_fn, read_symbol as _read_symbol
 from codebase_mcp.scratch import ScratchRunner
 
@@ -292,7 +292,7 @@ class Workspace:
             return {"ok": False, "reason": "no-session", "detail": session}
         try:
             code = _read_symbol(root, path, symbol)
-        except (FileNotFoundError, KeyError) as e:
+        except (OSError, KeyError) as e:
             return {"ok": False, "reason": "not-found", "detail": str(e)}
         return {"ok": True, "code": code}
 

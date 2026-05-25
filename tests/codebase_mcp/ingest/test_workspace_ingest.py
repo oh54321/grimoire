@@ -51,6 +51,14 @@ def test_read_source_whole_file(tmp_path):
     assert "def ping(host):" in r["code"]
 
 
+def test_read_source_rejects_traversal(tmp_path):
+    ws = _ws(tmp_path)
+    f = ws.fetch_source(_src(tmp_path))
+    out = ws.read_source(f["session"], "../../../../etc/passwd")
+    assert out["ok"] is False
+    assert out["reason"] == "not-found"
+
+
 def test_survey_source_with_path_subdir(tmp_path):
     src = tmp_path / "proj"
     (src / "pkg").mkdir(parents=True)

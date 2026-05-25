@@ -93,6 +93,24 @@ def test_fetch_git_url_with_ref(tmp_path):
     assert (f.root / "a.py").exists()
 
 
+def test_fetch_copies_symlink_as_link_not_target(tmp_path):
+    import os
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOPSECRET")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.py").write_text("x = 1\n")
+    try:
+        os.symlink(secret, src / "leak.py")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unsupported on this platform")
+    sb = Sandbox(tmp_path / "ing")
+    f = sb.fetch(str(src))
+    leak = f.root / "leak.py"
+    assert leak.is_symlink()                       # copied as a link, not dereferenced
+    assert "leak" not in f.top_modules             # symlinked .py excluded from survey/describe
+
+
 def test_fetch_git_url_bad_ref_raises(tmp_path):
     repo = tmp_path / "repo_badref"
     repo.mkdir()
