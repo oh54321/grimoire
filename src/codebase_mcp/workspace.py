@@ -277,7 +277,10 @@ class Workspace:
         root = self._sandbox.path(session)
         if not root.exists():
             return {"ok": False, "reason": "no-session", "detail": session}
-        symbols, skipped = _survey_fn(root, sub=path)
+        try:
+            symbols, skipped = _survey_fn(root, sub=path)
+        except (OSError, ValueError) as e:
+            return {"ok": False, "reason": "survey-failed", "detail": str(e)}
         return {"ok": True, "symbols": [
             {"module": s.module, "qualname": s.qualname, "kind": s.kind,
              "signature": s.signature, "doc": s.doc_first_line, "mcp_tool": s.mcp_tool}

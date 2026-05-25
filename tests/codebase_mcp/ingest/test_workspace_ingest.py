@@ -42,3 +42,23 @@ def test_fetch_bad_source_returns_error(tmp_path):
     out = ws.fetch_source(str(tmp_path / "missing"))
     assert out["ok"] is False
     assert out["reason"] == "fetch-failed"
+
+
+def test_read_source_whole_file(tmp_path):
+    ws = _ws(tmp_path)
+    f = ws.fetch_source(_src(tmp_path))
+    r = ws.read_source(f["session"], "api.py")   # no symbol -> whole file
+    assert "def ping(host):" in r["code"]
+
+
+def test_survey_source_with_path_subdir(tmp_path):
+    src = tmp_path / "proj"
+    (src / "pkg").mkdir(parents=True)
+    (src / "top.py").write_text("def top():\n    return 0\n")
+    (src / "pkg" / "inner.py").write_text("def inner():\n    return 1\n")
+    ws = _ws(tmp_path)
+    f = ws.fetch_source(str(src))
+    s = ws.survey_source(f["session"], path="pkg")
+    quals = {sym["qualname"] for sym in s["symbols"]}
+    assert "inner" in quals
+    assert "top" not in quals
