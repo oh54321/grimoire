@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,9 +41,29 @@ class Sandbox:
         if local.exists():
             self._root.mkdir(parents=True, exist_ok=True)
             shutil.copytree(local, dest, ignore=_IGNORE)
+        elif self._is_url(source):
+            self._clone(source, ref, dest)
         else:
-            raise FetchError(f"local path not found: {source}")
+            raise FetchError(f"not a local path or recognized git URL: {source}")
         return self._describe(session, dest)
+
+    @staticmethod
+    def _is_url(source: str) -> bool:
+        return "://" in source or source.endswith(".git") or "@" in source
+
+    def _clone(self, source: str, ref: str | None, dest: Path) -> None:
+        cmd = ["git", "clone", "--depth", "1"]
+        if ref:
+            cmd += ["--branch", ref]
+        cmd += [source, str(dest)]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=self._timeout)
+        except subprocess.TimeoutExpired as e:
+            raise FetchError(f"clone timed out after {self._timeout}s") from e
+        if proc.returncode != 0:
+            raise FetchError(f"clone failed: {proc.stderr.strip()[:300]}")
+        shutil.rmtree(dest / ".git", ignore_errors=True)
 
     def discard(self, session: str) -> bool:
         dest = self.path(session)

@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -49,3 +50,29 @@ def test_top_modules_excludes_init_and_includes_packages(tmp_path):
     assert "__init__" not in f.top_modules
     assert "main" in f.top_modules
     assert "pkg" in f.top_modules
+
+
+def _git_repo(tmp_path) -> str:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "mod.py").write_text("def f():\n    return 2\n")
+    run = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True,
+                                    capture_output=True)
+    run("init", "-q")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init")
+    return f"file://{repo}"
+
+
+def test_fetch_git_url_clones(tmp_path):
+    sb = Sandbox(tmp_path / "ingest")
+    f = sb.fetch(_git_repo(tmp_path))
+    assert (f.root / "mod.py").exists()
+    assert not (f.root / ".git").exists()   # .git stripped after clone
+    assert f.file_count == 1
+
+
+def test_fetch_bad_url_raises(tmp_path):
+    sb = Sandbox(tmp_path / "ingest", timeout=10.0)
+    with pytest.raises(FetchError):
+        sb.fetch("file:///definitely/not/a/repo")
