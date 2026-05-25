@@ -1,57 +1,42 @@
+<div align="center">
+
 # 🪄 Grimoire
 
-**An MCP server that gives Claude a persistent, test-gated, semantically-searchable library of reusable code — a grimoire of "spells" it grows, composes, and casts.**
+### A spellbook of reusable code for Claude
 
-Instead of re-reading a whole codebase to recall what exists, Claude searches Grimoire for a capability, reuses it as a dependency, or writes a new one that only enters the library once its tests pass. The library lives on disk and persists across sessions.
+**A persistent, test-gated, semantically-searchable library that Claude grows, composes, and casts — served over the [Model Context Protocol](https://modelcontextprotocol.io).**
 
-> Built on the [Model Context Protocol](https://modelcontextprotocol.io). Python 3.11+.
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![MCP](https://img.shields.io/badge/MCP-server-7C3AED)](https://modelcontextprotocol.io)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22C55E)](LICENSE)
+![Tests](https://img.shields.io/badge/tests-232%20passing-brightgreen)
 
-## Why
+</div>
 
-LLM coding agents keep re-deriving the same helpers and re-reading large codebases. Grimoire gives Claude a durable place to keep code worth reusing, reachable by meaning rather than file path:
+---
 
-- **Search before writing** — semantic search over each node's description + tags, so Claude reuses instead of duplicating.
-- **Tests are the gate** — code enters only through `implement`, which builds it in isolation and requires its tests to pass.
-- **Composable** — nodes declare dependencies on other nodes; cross-node imports are generated automatically.
-- **Lean by design** — hide internal helpers from search (`searchable=False`) and classify tools vs helpers (`is_tool`) to keep the surface curated.
-- **Persistent** — stored on disk under a configurable root; reloads across sessions.
+Instead of re-reading an entire codebase to recall what exists, Claude **searches Grimoire by meaning**, reuses a capability as a dependency, or writes a new one — and new code enters the library **only once its tests pass**. Everything lives on disk and persists across sessions.
 
-## How it works
+## ✨ Highlights
 
-Grimoire is a thin MCP layer over a node-graph code store:
+- 🔍 **Search before writing** — semantic search over every node's description + tags, so Claude reuses instead of duplicating.
+- ✅ **Tests are the gate** — code enters only through `implement`, which builds it in isolation and requires its tests to pass.
+- 🧩 **Composable** — nodes declare dependencies on other nodes; cross-node imports are generated automatically.
+- 🪶 **Lean by design** — hide internal helpers from search (`searchable=False`) and classify callable **tools** vs **helpers** (`is_tool`).
+- 💾 **Persistent** — stored on disk under a configurable root; reloads across sessions.
+- ⚡ **Scratch execution** — prototype throwaway macros against built code without polluting the library.
 
-- **Nodes** are folders or code (method / class / executable). Each code node has a description, dependencies, tests, a `searchable` flag, and an `is_tool` flag.
-- **The builder** materializes each code node to a Python module, generating `from build.<dep> import <name>` for its dependencies — authors never write cross-node imports.
-- **The runner** runs tests in an isolated, warm pytest worker. `implement` trial-builds + tests a candidate and commits it only if every test passes.
-- **Search** is a vector index over descriptions and composite tags (`@kind:`, `@in:`, `@searchable:`, `@tool:`); tag/folder/type filters are OR (match-any), with hidden nodes gated out by default.
-
-The on-disk node store is the single source of truth; the build cache and search index are regenerable.
-
-## Install
+## 🚀 Quick start
 
 ```bash
 git clone https://github.com/oh54321/grimoire.git
 cd grimoire
-pip install .            # or: pip install -e '.[test]' for development
-```
-
-Python 3.11+. (First run downloads a sentence-transformers embedding model.)
-
-## Run
-
-```bash
-grimoire                 # stdio MCP server (installed console script)
-# or, without installing the script:
-python -m codebase_mcp
-```
-
-## Use with Claude Code
-
-```bash
+pip install .                       # first run downloads an embedding model
 claude mcp add grimoire -- grimoire
 ```
 
-Or add it to an MCP client config manually:
+<details>
+<summary>Manual MCP client config</summary>
 
 ```json
 {
@@ -63,8 +48,30 @@ Or add it to an MCP client config manually:
   }
 }
 ```
+</details>
 
-## Configuration
+Run it directly with `grimoire` (installed console script) or `python -m codebase_mcp` (stdio).
+
+## 🧭 How it works
+
+Grimoire is a thin MCP layer over a node-graph code store. Each **code node** (method / class / executable) carries a description, dependencies, tests, a `searchable` flag, and an `is_tool` flag. The **builder** materializes each node to a module and generates `from build.<dep> import <name>` for its dependencies — authors never write cross-node imports. The **runner** executes tests in an isolated, warm pytest worker; `implement` trial-builds a candidate and commits it **only if every test passes**.
+
+```mermaid
+flowchart TD
+    Claude["🤖 Claude"] -- "MCP tools" --> Server["FastMCP server"]
+    Server --> WS["Workspace (core)"]
+    WS --> CB["Codebase facade"]
+    WS --> Scratch["ScratchRunner · ephemeral"]
+    CB --> Graph["node store · builder · pytest runner"]
+    CB --> Search["vector search index"]
+    Graph --> Disk[("~/.grimoire/codebase")]
+```
+
+The on-disk node store is the single source of truth; the build cache and search index are regenerable. Search is a vector index over descriptions + composite tags (`@kind:`, `@in:`, `@searchable:`, `@tool:`); tag / folder / type filters are **OR** (match-any), with hidden nodes gated out by default.
+
+## ⚙️ Configuration
+
+All via environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -73,48 +80,45 @@ Or add it to an MCP client config manually:
 | `GRIMOIRE_MAX_FOLDER_CHILDREN` | `7` | Hard cap per folder; the (N+1)th child is rejected `folder-full` |
 | `GRIMOIRE_SCRATCH_TIMEOUT` | `30` | Seconds before a `run_scratch` run is killed |
 
-## Tools
+## 🛠️ Tools
 
-**Find & reuse**
-- `discover(query)` — plain hits + candidate tags/folders + present types, for model-driven refinement
-- `search(query, tags?, folders?, object_types?, include_hidden?, is_tool?)` — filters are OR/match-any; hidden nodes excluded unless `include_hidden`; `is_tool=true/false` restricts to tools/helpers
-- `search_tags(query)`, `list_tags()`
+| Group | Tools |
+|---|---|
+| **Find & reuse** | `discover` · `search` (OR filters · `include_hidden` · `is_tool`) · `search_tags` · `list_tags` |
+| **Read** (stub-first) | `view` (signature + meta, not the body) · `read_code` · `read_tests` · `children` · `tree` |
+| **Create & test** | `define` · `implement` *(the gate — code enters only here)* · `dirty` · `rebuild` |
+| **Organize & classify** | `make_folder` · `move` (one or many) · `rename` · `remove` · `hide`/`show` · `mark_tool`/`mark_helper` · `health` |
+| **Scratch** | `run_scratch(code, deps?)` — ephemeral; imports built nodes; never persisted |
 
-**Read (stub-first)**
-- `view(node_id)` — description, signature, dependencies, tests, `searchable`, `is_tool` (not the full body)
-- `read_code(node_id)`, `read_tests(node_id)`, `children(folder_id?)`, `tree(folder_id?)`
+## 🔄 Workflow
 
-**Create & test**
-- `define(kind, name, description, parent?, dependencies?, tags?, searchable?, is_tool?)` — create a stub
-- `implement(node_id, code, tests)` — build + test; commits only if ≥ `min_tests` pass (the only way code enters)
-- `dirty()`, `rebuild(node_id?)`
+```mermaid
+flowchart LR
+    A["discover / search"] --> B{"found it?"}
+    B -- yes --> C["reuse as dependency"]
+    B -- no --> D["define"]
+    C --> D
+    D --> E["implement + tests"]
+    E -- "pass" --> F["✅ committed to library"]
+    E -- "fail" --> D
+```
 
-**Organize & classify**
-- `make_folder`, `move` (one or many), `rename`, `remove`
-- `hide` / `show` (search visibility), `mark_tool` / `mark_helper` (callable tool vs helper)
-- `health()` — folders at/over the cap
+Keep it lean: decompose into small nodes, hide narrow helpers (`searchable=False`), and mark internal building blocks as helpers (`is_tool=False`) so the searchable tool surface stays curated.
 
-**Scratch**
-- `run_scratch(code, deps?)` — ephemeral; imports built nodes; never persisted
-
-## Workflow
-
-`discover`/`search` → if nothing fits, `define` a node (reusing hits as `dependencies`) → `implement` with tests → organize into folders. Keep it lean: decompose into small nodes, hide narrow helpers (`searchable=False`), and mark them helpers (`is_tool=False`). Prototype throwaway macros against built nodes with `run_scratch`.
-
-## Development
+## 🧪 Development
 
 ```bash
 pip install -e '.[test]'
 pytest -q
 ```
 
-Layout: `src/codebase_mcp/` (MCP layer: `Workspace` core + thin FastMCP `server.py`) over `src/api/` (`Codebase` facade), `src/library/` (node store, builder, runner), and `src/search/` (vector index).
+**Layout** — `src/codebase_mcp/` (MCP layer: `Workspace` core + thin FastMCP `server.py`) over `src/api/` (`Codebase` facade), `src/library/` (node store · builder · runner), and `src/search/` (vector index).
 
-## Roadmap
+## 🗺️ Roadmap
 
 - Persist the vector index (currently re-embedded from the store on each open).
 - **Codebase ingestion** — pull source from an external repo into the library as test-gated nodes (`integrate-mcp` = that, pointed at an MCP server's repo).
 
-## License
+## 📄 License
 
 MIT © Oliver Hayman
