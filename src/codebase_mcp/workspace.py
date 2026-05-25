@@ -69,6 +69,7 @@ class Workspace:
         base = self.search(query, page=page)
         hits = base["hits"]
         tag_pg = self._cb.search_tags(query)
+        # include_hidden=True is intentional: surface folders as navigation hints even if hidden
         folder_hits = self.search(query, object_types=["folder"], include_hidden=True)["hits"]
         return {
             "hits": hits,
@@ -182,7 +183,7 @@ class Workspace:
             return self._invalid_move(e)
         return {"ok": True, "id": nid}
 
-    def move(self, node_ids, new_parent: str) -> dict:
+    def move(self, node_ids: "str | list[str]", new_parent: str) -> dict:
         try:
             self._cb.move(node_ids, new_parent)
         except InvalidMove as e:

@@ -1,4 +1,3 @@
-import pytest
 from codebase_mcp.config import McpConfig
 from codebase_mcp.workspace import Workspace
 from tests.api.test_search_system import FakeEmbedder
