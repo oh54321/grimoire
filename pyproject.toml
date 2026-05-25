@@ -24,10 +24,11 @@ dependencies = [
     "sentence-transformers>=2.7",
     "hnswlib>=0.8",
     "mcp>=1.0",
+    # Runtime deps, not test-only: the `implement` gate shells out to pytest
+    # (via the warm test worker) to run each node's tests before committing it.
+    "pytest>=8.0",
+    "pytest-json-report>=1.5",
 ]
-
-[project.optional-dependencies]
-test = ["pytest>=8.0", "pytest-json-report>=1.5"]
 
 [project.scripts]
 grimoire = "grimoire.codebase_mcp.server:main"

@@ -137,9 +137,11 @@ Keep it lean: decompose into small nodes, hide narrow helpers (`searchable=False
 ## 🧪 Development
 
 ```bash
-pip install -e '.[test]'
+pip install -e .
 pytest -q
 ```
+
+(`pytest` and `pytest-json-report` ship as runtime dependencies — the `implement` gate runs tests in a subprocess — so no separate test extra is needed.)
 
 **Layout** — everything lives under one top-level package, `src/grimoire/`: `grimoire/codebase_mcp/` (MCP layer: `Workspace` core + thin FastMCP `server.py`) over `grimoire/api/` (`Codebase` facade), `grimoire/library/` (node store · builder · runner), and `grimoire/search/` (vector index).
 
