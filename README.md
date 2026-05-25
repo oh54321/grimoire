@@ -28,12 +28,33 @@ Instead of re-reading an entire codebase to recall what exists, Claude **searche
 
 ## 🚀 Quick start
 
+Install the `grimoire` command in one line with [pipx](https://pipx.pypa.io), then register it with Claude Code:
+
 ```bash
-git clone https://github.com/oh54321/grimoire.git
-cd grimoire
-pip install .                       # first run downloads an embedding model
+pipx install git+https://github.com/oh54321/grimoire.git
 claude mcp add grimoire -- grimoire
 ```
+
+<details>
+<summary>Other ways to install</summary>
+
+**Clone + script** — auto-detects pipx / uv / venv:
+```bash
+git clone https://github.com/oh54321/grimoire.git
+cd grimoire && ./install.sh
+```
+
+**Zero-install with [uv](https://docs.astral.sh/uv/)** — run straight from git (use this as the MCP command):
+```bash
+uvx --from git+https://github.com/oh54321/grimoire.git grimoire
+```
+
+**Plain pip**, in a virtualenv:
+```bash
+git clone https://github.com/oh54321/grimoire.git
+cd grimoire && pip install .
+```
+</details>
 
 <details>
 <summary>Manual MCP client config</summary>
@@ -50,7 +71,7 @@ claude mcp add grimoire -- grimoire
 ```
 </details>
 
-Run it directly with `grimoire` (installed console script) or `python -m codebase_mcp` (stdio).
+Python 3.11+. The first run downloads a sentence-transformers embedding model.
 
 ## 🧭 How it works
 
