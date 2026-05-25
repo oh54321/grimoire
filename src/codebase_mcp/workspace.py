@@ -34,7 +34,8 @@ class Workspace:
             max_folder_children=config.max_folder_children,
         )
         scratch = ScratchRunner(Path(config.root), timeout=config.scratch_timeout)
-        sandbox = Sandbox(config.ingest_root, timeout=config.ingest_timeout)
+        sandbox = Sandbox(config.ingest_root, timeout=config.ingest_timeout,
+                          ttl=config.ingest_ttl)
         return cls(cb, scratch, config, sandbox)
 
     # ---- helpers ----

@@ -123,3 +123,31 @@ def test_fetch_git_url_bad_ref_raises(tmp_path):
     sb = Sandbox(tmp_path / "ingest")
     with pytest.raises(FetchError):
         sb.fetch(f"file://{repo}", ref="no_such_branch")
+
+
+def test_fetch_sweeps_stale_sessions_but_keeps_recent(tmp_path):
+    import os
+    import time
+    src = str(_src(tmp_path))
+    sb = Sandbox(tmp_path / "ingest", ttl=100.0)
+    fresh = sb.fetch(src)                             # recent session
+    orphan = tmp_path / "ingest" / "stale_session"
+    orphan.mkdir()
+    (orphan / "x.py").write_text("x = 1\n")
+    old = time.time() - 1000                         # older than ttl
+    os.utime(orphan, (old, old))
+    sb.fetch(src)                                    # fetch sweeps first
+    assert not orphan.exists()                       # stale orphan reclaimed
+    assert sb.path(fresh.session).exists()           # recent session untouched
+
+
+def test_fetch_ttl_zero_disables_sweep(tmp_path):
+    import os
+    import time
+    sb = Sandbox(tmp_path / "ingest", ttl=0.0)
+    orphan = tmp_path / "ingest" / "stale_session"
+    orphan.mkdir(parents=True)
+    old = time.time() - 100000
+    os.utime(orphan, (old, old))
+    sb.fetch(str(_src(tmp_path)))
+    assert orphan.exists()                           # ttl<=0 -> never sweep

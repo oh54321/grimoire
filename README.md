@@ -102,6 +102,7 @@ All via environment variables:
 | `GRIMOIRE_SCRATCH_TIMEOUT` | `30` | Seconds before a `run_scratch` run is killed |
 | `GRIMOIRE_INGEST_ROOT` | `~/.grimoire/ingest` | Where the `ingest` prompt's ephemeral source clones live (read-only browse; never imported) |
 | `GRIMOIRE_INGEST_TIMEOUT` | `60` | Seconds before a `fetch_source` git clone is killed |
+| `GRIMOIRE_INGEST_TTL` | `86400` | Seconds before an idle ingest session is swept on the next `fetch_source` (0 disables) |
 
 ## 🛠️ Tools
 
@@ -141,7 +142,7 @@ pytest -q
 ## 🗺️ Roadmap
 
 - Persist the vector index (currently re-embedded from the store on each open).
-- **Codebase ingestion** ✅ — pull source from an external repo or MCP server into the library as test-gated nodes, via the `ingest` prompt (`fetch_source`/`survey_source`/`read_source` → `define`/`implement` → `discard_source`). Deferred hardening: sandbox network/process isolation, and a TTL sweep for abandoned `~/.grimoire/ingest` sessions (cleanup is currently agent-driven via `discard_source`).
+- **Codebase ingestion** ✅ — pull source from an external repo or MCP server into the library as test-gated nodes, via the `ingest` prompt (`fetch_source`/`survey_source`/`read_source` → `define`/`implement` → `discard_source`). Abandoned `~/.grimoire/ingest` sessions are reclaimed by a TTL sweep on the next `fetch_source` (`GRIMOIRE_INGEST_TTL`). Deferred hardening: sandbox network/process isolation.
 
 ## 📄 License
 

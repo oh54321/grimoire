@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,14 +28,17 @@ class Sandbox:
     """Fetches a source into an ephemeral session dir. Nothing here is ever
     placed on an import path; cloned code is read-only browse material."""
 
-    def __init__(self, ingest_root: Path, timeout: float = 60.0) -> None:
+    def __init__(self, ingest_root: Path, timeout: float = 60.0,
+                 ttl: float = 86400.0) -> None:
         self._root = Path(ingest_root)
         self._timeout = timeout
+        self._ttl = ttl
 
     def path(self, session: str) -> Path:
         return self._root / session
 
     def fetch(self, source: str, ref: str | None = None) -> Fetched:
+        self._sweep()
         session = uuid.uuid4().hex[:12]
         dest = self.path(session)
         local = Path(source).expanduser()
@@ -71,6 +75,19 @@ class Sandbox:
             shutil.rmtree(dest)
             return True
         return False
+
+    def _sweep(self) -> None:
+        """Remove session dirs idle longer than ttl. Cheap insurance against
+        sessions that were never discard()ed because a workflow was abandoned."""
+        if self._ttl <= 0 or not self._root.exists():
+            return
+        cutoff = time.time() - self._ttl
+        for child in self._root.iterdir():
+            try:
+                if child.is_dir() and child.stat().st_mtime < cutoff:
+                    shutil.rmtree(child, ignore_errors=True)
+            except OSError:
+                continue
 
     def _describe(self, session: str, dest: Path) -> Fetched:
         py = sorted(p for p in dest.rglob("*.py") if not p.is_symlink())

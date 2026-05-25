@@ -28,12 +28,15 @@ def test_ingest_defaults():
     cfg = McpConfig.from_env({})
     assert cfg.ingest_root == Path.home() / ".grimoire" / "ingest"
     assert cfg.ingest_timeout == 60.0
+    assert cfg.ingest_ttl == 86400.0
 
 
 def test_ingest_env_overrides(tmp_path):
     cfg = McpConfig.from_env({
         "GRIMOIRE_INGEST_ROOT": str(tmp_path / "ing"),
         "GRIMOIRE_INGEST_TIMEOUT": "12.5",
+        "GRIMOIRE_INGEST_TTL": "3600",
     })
     assert cfg.ingest_root == tmp_path / "ing"
     assert cfg.ingest_timeout == 12.5
+    assert cfg.ingest_ttl == 3600.0

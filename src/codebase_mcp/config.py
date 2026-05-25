@@ -13,6 +13,7 @@ class McpConfig:
     scratch_timeout: float = 30.0
     ingest_root: Path = Path.home() / ".grimoire" / "ingest"
     ingest_timeout: float = 60.0
+    ingest_ttl: float = 86400.0  # sweep sandbox sessions idle longer than this (seconds)
 
     @classmethod
     def from_env(cls, env: dict | None = None) -> "McpConfig":
@@ -29,6 +30,7 @@ class McpConfig:
         ingest_root = (Path(raw_ingest).expanduser() if raw_ingest
                        else Path.home() / ".grimoire" / "ingest")
         ingest_timeout = env.get("GRIMOIRE_INGEST_TIMEOUT")
+        ingest_ttl = env.get("GRIMOIRE_INGEST_TTL")
         return cls(
             root=root,
             min_tests=_int("GRIMOIRE_MIN_TESTS", 3),
@@ -36,4 +38,5 @@ class McpConfig:
             scratch_timeout=float(timeout) if timeout else 30.0,
             ingest_root=ingest_root,
             ingest_timeout=float(ingest_timeout) if ingest_timeout else 60.0,
+            ingest_ttl=float(ingest_ttl) if ingest_ttl else 86400.0,
         )
