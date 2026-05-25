@@ -32,7 +32,7 @@ Because every non-authoritative store is regenerable, cross-file divergence afte
 2. **Navigate / search** for existing nodes by meaning — `search_tags` to discover relevant tags, then `search` with tag / folder / type filters. Results are lightweight hits (id, name, kind, description, score); the full node is loaded only on demand.
 3. **Make folders** and **move** nodes to organize the tree.
 4. **Define an abstraction** — name, description, object type, dependencies, tags. No code yet. The node is immediately searchable and shows up as dirty (needs implementation).
-5. **Implement** it — supply `code` and `tests`. The api builds the node (imports to dependencies are generated here), runs the tests, and **commits only if every test passes**; otherwise it reverts and raises with the failure detail so Claude can iterate. Iterating is cheap: the build is incremental and no re-embedding happens.
+5. **Implement** it — supply `code` and `tests`. The api builds + tests the candidate in scratch (imports to dependencies are generated here) and **writes it into the node only if every test passes**; otherwise the node is left untouched and it raises with the failure detail so Claude can iterate. Iterating is cheap: the build is incremental and no re-embedding happens.
 6. **Rebuild** at any time to incrementally regenerate + revalidate everything currently dirty (e.g. after a dependency changed), reusing the hash-incremental Builder and the Runner.
 
 ## Architecture: three objects
@@ -43,7 +43,7 @@ Codebase  ── owns ──▶  Graph         (library: node store + cache + bu
    └────── owns ──▶  SearchSystem    (api: two vector indices over the node corpus and the tag vocabulary)
 ```
 
-- **`Graph`** (existing, `src/library/`, unchanged) owns the node store, cache, incremental builder, pytest runner, and the in-memory parent/children/tags/dependents index.
+- **`Graph`** (existing, `src/library/`) owns the node store, cache, incremental builder, pytest runner, and the in-memory parent/children/tags/dependents index. It gains a few **purely additive** methods (`trial_run`, `iter_code_ids`, `is_build_stale`) plus `Builder.build_trial`; no existing behavior changes.
 - **`SearchSystem`** (`src/api/search_system.py`) owns **both** vector indices and their persistence under `<root>/index/`. It has a pure search/index responsibility and **never references `Graph`.** Folder ancestry and object type are baked into each entry's tags at write time (by `Codebase`), so it answers every filter natively with no Graph lookup at query time.
 - **`Codebase`** (`src/api/codebase.py`) is the structure around both. It is the **only** object that owns and mutates `Graph` and `SearchSystem`, always in lockstep. It derives `root_id` and `dirty()`, computes each node's composite tags (real ∪ `@kind:` ∪ `@in:` ancestry) from the tree when indexing, and runs the transactional `implement`.
 
@@ -291,15 +291,16 @@ When indexing any node, `Codebase` assembles the composite tag set: it reads the
 
 `define_abstraction` creates a `CodeNode` with the given metadata and **no `code`/`tests`**, via `Graph.add_node`, then indexes it (`SearchSystem.index_node` + `index_tags`). With no build and no passing tests it is automatically `dirty()`.
 
-`implement(node_id, code, tests)` is **transactional — commit on green, revert on failure:**
+`implement(node_id, code, tests)` uses a **staged atomic commit** — the candidate code is built and tested in the regenerable `build/` scratch area and only written into the canonical node dir if every test passes. The node dir therefore *never* holds unvalidated code, even across a crash, and a re-implement never overwrites the prior passing version until its replacement is green. No in-memory snapshot/revert is needed.
 
-1. Snapshot the node's current `meta` + `code.py` + `tests.py` in memory (for a first implementation, the snapshot has no code/tests).
-2. Write the new `code` and `tests` via `Graph.update_node` (atomic tmp+`os.replace`); this invalidates the build manifest entry.
-3. `Graph.run_tests(node_id)` — which calls `ensure_built` (generating the `from build.<dep> import <name>` preamble from the declared dependencies — *import assignment is part of generation*) and then runs pytest, folding statuses back onto the node.
-4. **All passing** → commit: the new code/tests stay; return `ImplementResult(all_passing=True, results)`. (Dependents are not eagerly touched — the Builder's hash check marks them stale automatically on their next build, which is what makes them show up dirty.)
-5. **Any failing, or a `BuildError`** → revert: restore the snapshot via `Graph.update_node` (or remove code for a first implementation), invalidate the manifest entry, and raise `ImplementationFailed(node_id, results, detail)` carrying the per-test results.
+1. Ensure the declared dependencies are built from canonical sources (`ensure_built(dep)` for each — incremental, usually a no-op).
+2. **Trial build + test** via `Graph.trial_run(node_id, code, tests)`: the `Builder` materializes `build/<id>.py` and `build/test_<id>.py` from the *candidate* text (generating the `from build.<dep> import <name>` preamble from the node's declared dependencies — *import assignment is part of generation*), and the `Runner` runs pytest. This reads the node's `meta` for deps/name but **writes nothing to the node dir** and does not record a manifest entry.
+3. **All passing** → commit: write `code`/`tests` into the node dir via `Graph.update_node` (atomic tmp+`os.replace`) and `ensure_built` to record the manifest. Fold passing statuses onto the node. Return `ImplementResult(all_passing=True, results)`. (Dependents aren't eagerly touched — the Builder's hash check marks them stale on their next build, which is what surfaces them as dirty.)
+4. **Any failing, or a `BuildError`** → discard: invalidate the node's manifest entry (so the next `ensure_built` restores the canonical materialization from prior code, if any) and raise `ImplementationFailed(node_id, results, detail)` with the per-test results. The node dir is untouched — for a first implementation it stays abstraction-only (and dirty); for a re-implement it keeps its prior passing code.
 
-The canonical graph therefore only ever holds passing implementations. Iteration is fast: re-calling `implement` rebuilds only this node plus any changed dependencies (incremental Builder), and **nothing is re-embedded** because name/description/tags are unchanged.
+The canonical graph therefore only ever holds passing implementations, even under a crash mid-test. Iteration is fast: a trial rebuilds only this node (deps are already built), and **nothing is re-embedded** because name/description/tags are unchanged.
+
+This needs one small additive method on the library's `Builder` — `build_trial(node_id, code_text, tests_text, dependencies)`, which composes the build/test files from given text without reading or writing the store and without touching the manifest — surfaced through `Graph.trial_run`. Existing `Builder`/`Graph` behavior is unchanged; these are pure additions.
 
 ### Incremental rebuild (point d)
 
@@ -352,7 +353,9 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 - **One embed, one search per query.** A search embeds the query exactly once (~5–30 ms CPU) and runs a single vector search; CNF tag filtering (AND of OR-groups) computes the candidate set with set ops over tag buckets, so OR-over-folders/types costs no extra embeddings or queries. The model lazy-loads once (~1–2 s) on the first query of a process, then stays warm.
 - **Exact filtering via native tags.** Folder/type/tag filters are composite tags; the candidate set is ranked by exact brute-force cosine under `brute_force_threshold` (covers expected corpus sizes), HNSW-with-filter above it. No post-truncation, no query-time Graph lookup.
 - **Paged result cache.** Flipping pages of one query is O(1) and embeds nothing — the first page builds and caches the full `PagedList`; later pages slice it. The cache is a small ephemeral LRU cleared on any index mutation, so it holds no authoritative state and never serves a page that predates a write.
-- **Honest cost.** The dominant latency in `implement`/`rebuild` is pytest's subprocess startup in the existing `Runner` (hundreds of ms per node), not the build or the search. An in-process / long-lived pytest worker is future work (already noted in the library spec).
+- **Staged atomic commit.** `implement` builds + tests the candidate in the regenerable `build/` area and writes it into the node dir only on success, so the canonical store never holds unvalidated code (even across a crash) and a re-implement never clobbers the prior passing version. No snapshot/revert; on failure the node dir is simply untouched.
+- **Saving is fast and robust.** A commit is a few small atomic writes (`code.py`, `tests.py`, `meta.json` via tmp+`os.replace`) plus O(1) cache invalidation and no embedding. A crash between those post-validation writes leaves validated-content files that may be momentarily inconsistent → the node reads as dirty and is re-tested on next `rebuild`; never silent-bad, never corrupt.
+- **Honest cost — the test run.** Build, save, search, and index updates are all sub-ms-to-low-ms. The real latency floor is **pytest's subprocess startup (~0.3–1 s per node)** in the existing `Runner`: it sets the per-iteration cost of the create→test→fix loop and, multiplied by the transitive-dependent count, the cost of a broad refactor's `rebuild`. The build itself is minimal (content-hash incremental — only changed nodes + dependents re-materialize). The levers are an in-process/long-lived pytest worker and parallel test runs across independent nodes — both future work.
 
 ## Testing
 
@@ -360,7 +363,8 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 
 - **`test_codebase_bootstrap.py`** — first `open` creates exactly one root `FolderNode`; reopening reuses it; a hand-corrupted two-root store raises `ApiError`; `root_id` is the parent-less folder.
 - **`test_codebase_folders.py`** — `make_folder` nests under root/explicit parent; `move` re-parents and updates both `children` sets; moving into own subtree / onto a non-folder / moving the root raises `InvalidMove`; after a move, every descendant's `@in:` tags are rewritten so folder-filtered search reflects the new location (and the old folder no longer matches), with no re-embedding.
-- **`test_codebase_implement.py`** — `define_abstraction` yields a node that is `dirty()` and searchable with no code; `implement` with passing tests commits and clears dirty; `implement` with a failing test reverts (node back to abstraction-only / prior code), raises `ImplementationFailed` with results, and leaves the node dirty; re-`implement` after a fix commits; a dependency change marks the dependent dirty.
+- **`test_codebase_implement.py`** — `define_abstraction` yields a node that is `dirty()` and searchable with no code; `implement` with passing tests commits and clears dirty; `implement` with a failing test raises `ImplementationFailed` with results and leaves the node dir **untouched** (abstraction-only for a first attempt; prior passing `code.py`/`tests.py` intact for a re-implement) and dirty; the node dir never contains unvalidated code (assert `load_code` after a failed first implement is still empty); re-`implement` after a fix commits; a dependency change marks the dependent dirty.
+- **`test_builder_trial.py`** (in `tests/library/`) — `Builder.build_trial` materializes build/test files from given text without writing the store or recording a manifest entry; a failed trial followed by `ensure_built` restores the canonical materialization; `Graph.trial_run` returns results without committing.
 - **`test_codebase_rebuild.py`** — `rebuild` regenerates only dirty nodes (clean ones land in `skipped`); a dependency edit then `rebuild` re-tests dependents; failing nodes appear in `failed` and stay dirty (no revert); subtree-scoped `rebuild(node_id)`.
 - **`test_search_system.py`** — `index_node`/`remove_node` round-trip with composite tags; `search` real-tag-AND vs folder/type-OR semantics; OR over multiple folders/types embeds exactly once (counting fake embedder) and matches the union exactly; `@`-prefixed real tags are rejected; `list_tags` excludes synthetics; `search_tags` ranks related tags; `reindex` rebuilds both indices from an entry list; hits carry name/kind/description without loading nodes.
 - **`test_search_paging.py`** — `search_page`/`search_tags_page` return correct page slices, `num_pages`/`total`; flipping pages of one query embeds exactly once (assert via a counting fake embedder); out-of-range page raises `IndexError`; empty result is page 0 with no hits; any index mutation clears the cache so the next page reflects the change; `SearchPage.render()`/`TagPage.render()` include kind/name/id/truncated-description and page navigation, and round-trip the listed `node_id`s.
@@ -372,6 +376,8 @@ Library errors (`NodeNotFound`, `DuplicateNodeId`, `BuildError`, `MissingDepende
 
 - **Concrete export.** Materialize the abstract tree into a real named-file project (folders → directories, code nodes → named `.py` files with real relative imports), regenerated incrementally.
 - **Forced/auto refactor.** Policies such as splitting a folder when it exceeds a size threshold, or flagging god-nodes.
-- **In-process pytest worker** to remove subprocess startup from the implement/iterate loop.
+- **In-process / long-lived pytest worker** to remove subprocess startup from the implement/iterate loop — the single biggest latency lever.
+- **Parallel test runs** across independent nodes during `rebuild`, to cut broad-refactor revalidation time.
+- **Incremental `dirty()`** maintained in memory if the per-call scan ever shows up at very large scale.
 - **Concurrency** (multiple writers); current design is single-threaded like the library.
 - **Embedding name + description** (vs description only) and tuning the brute-force threshold once corpus sizes are known.
