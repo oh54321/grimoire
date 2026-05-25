@@ -18,3 +18,13 @@ def test_discard_trial_first_impl_removes_scratch(tmp_path):
     g.trial_run(nid, "def bad():\n    return 1\n", "def test_bad():\n    assert bad() == 2\n")
     g.discard_trial(nid)
     assert not (tmp_path / "build" / f"{nid}.py").exists()
+
+
+def test_trial_run_on_folder_raises(tmp_path):
+    import pytest
+    from library import FolderNode, BuildError
+    g = Graph.open(tmp_path)
+    fid = new_node_id()
+    g.add_node(FolderNode(node_id=fid, name="f", description="d"))
+    with pytest.raises(BuildError):
+        g.trial_run(fid, "x = 1\n", "")

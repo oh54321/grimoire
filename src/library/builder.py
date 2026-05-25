@@ -194,6 +194,9 @@ class Builder:
         """Materialize build/<id>.py and build/test_<id>.py from the given candidate
         text WITHOUT reading or writing the store and WITHOUT recording a manifest
         entry. Dependencies must already be built."""
+        node = self.cache.get(node_id)
+        if not isinstance(node, CodeNode):
+            raise BuildError(node_id, "only CodeNodes can be built")
         _scan_forbidden_build_imports(node_id, code_text, where="code.py")
         dep_nodes: list[CodeNode] = []
         for dep_id in sorted(dependencies):
@@ -209,9 +212,6 @@ class Builder:
                 raise BuildError(node_id, f"duplicate dep symbol: {dn.name}")
             seen[dn.name] = dn.node_id
         self._build_root_init()
-        node = self.cache.get(node_id)
-        if not isinstance(node, CodeNode):
-            raise BuildError(node_id, "only CodeNodes can be built")
         out = self._compose_built_file(dep_nodes, code_text)
         _atomic_write(self.build_root / f"{node_id}.py", out)
         if tests_text:

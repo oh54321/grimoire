@@ -7,7 +7,7 @@ from typing import Any
 from library.builder import Builder
 from library.cache import NodeCache
 from library.config import LibraryConfig
-from library.errors import DuplicateNodeId, NodeNotFound
+from library.errors import BuildError, DuplicateNodeId, NodeNotFound
 from library.ids import NodeId
 from library.nodes import CodeNode, FolderNode, Node
 from library.runner import Runner, TestResult
@@ -194,7 +194,7 @@ class Graph:
         committed code; otherwise removes the scratch build files."""
         if self._store.load_code(node_id):
             self._builder.invalidate(node_id)
-            self._builder.ensure_built(node_id)
+            self.ensure_built(node_id)
         else:
             self._builder.remove(node_id)
 
