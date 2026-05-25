@@ -22,6 +22,7 @@ TOOL_NAMES = [
     "define", "implement", "dirty", "rebuild",
     "make_folder", "move", "rename", "remove", "hide", "show", "mark_tool", "mark_helper", "health",
     "run_scratch",
+    "fetch_source", "survey_source", "read_source", "discard_source",
 ]
 
 
