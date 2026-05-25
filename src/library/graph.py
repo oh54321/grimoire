@@ -107,6 +107,17 @@ class Graph:
     def dependents_of(self, node_id: NodeId) -> set[NodeId]:
         return set(self._index.dependents.get(node_id, set()))
 
+    def iter_ids(self):
+        return self._store.iter_ids()
+
+    def iter_code_ids(self):
+        for nid in self._store.iter_ids():
+            if isinstance(self._cache.get(nid), CodeNode):
+                yield nid
+
+    def is_build_stale(self, node_id: NodeId) -> bool:
+        return self._builder.is_stale_with_deps(node_id)
+
     # ----- node access -----
 
     def get(self, node_id: NodeId) -> Node:

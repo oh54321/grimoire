@@ -152,6 +152,31 @@ class Builder:
             return True
         return entry.code_hash != current
 
+    def is_stale_with_deps(self, node_id: NodeId) -> bool:
+        """True if the node has no manifest entry, its own code changed, or any
+        direct dependency's code changed since the last build."""
+        entry = self._manifest.get(node_id)
+        if entry is None:
+            return True
+        try:
+            if entry.code_hash != _sha256_text(self.cache.get_code(node_id)):
+                return True
+        except Exception:
+            return True
+        node = self.cache.get(node_id)
+        if not isinstance(node, CodeNode):
+            return True
+        for dep_id in node.dependencies:
+            recorded = entry.dep_hashes.get(dep_id)
+            if recorded is None:
+                return True
+            try:
+                if recorded != _sha256_text(self.cache.get_code(dep_id)):
+                    return True
+            except Exception:
+                return True
+        return False
+
     def invalidate(self, node_id: NodeId) -> None:
         self._manifest.pop(node_id, None)
         self._save_manifest()
