@@ -7,7 +7,7 @@ from typing import Any
 from library.builder import Builder
 from library.cache import NodeCache
 from library.config import LibraryConfig
-from library.errors import DuplicateNodeId, NodeNotFound
+from library.errors import BuildError, DuplicateNodeId, NodeNotFound
 from library.ids import NodeId
 from library.nodes import CodeNode, FolderNode, Node
 from library.runner import Runner, TestResult
@@ -86,7 +86,11 @@ class Graph:
         store = NodeStore(cfg)
         cache = NodeCache(store, max_bytes=cfg.max_cache_mb * 1024 * 1024, ttl_seconds=cfg.ttl_seconds)
         builder = Builder(store, cache, build_root=root / "build")
-        runner = Runner(build_root=root / "build")
+        runner = Runner(
+            build_root=root / "build",
+            use_worker=cfg.use_test_worker,
+            timeout=cfg.test_timeout_seconds,
+        )
         return cls(store, cache, builder, runner, cfg)
 
     # ----- navigation -----
@@ -106,6 +110,17 @@ class Graph:
 
     def dependents_of(self, node_id: NodeId) -> set[NodeId]:
         return set(self._index.dependents.get(node_id, set()))
+
+    def iter_ids(self):
+        return self._store.iter_ids()
+
+    def iter_code_ids(self):
+        for nid in self._store.iter_ids():
+            if isinstance(self._cache.get(nid), CodeNode):
+                yield nid
+
+    def is_build_stale(self, node_id: NodeId) -> bool:
+        return self._builder.is_stale_with_deps(node_id)
 
     # ----- node access -----
 
@@ -166,6 +181,26 @@ class Graph:
             self._store.save(node)
             self._cache.invalidate(node_id)
         return results
+
+    def trial_run(self, node_id: NodeId, code: str, tests: str) -> list[TestResult]:
+        """Build + test candidate code/tests in the build scratch area without
+        committing to the store. Returns the per-test results."""
+        node = self._cache.get(node_id)
+        if not isinstance(node, CodeNode):
+            raise BuildError(node_id, "only CodeNodes can be implemented")
+        for dep_id in node.dependencies:
+            self.ensure_built(dep_id)
+        self._builder.build_trial(node_id, code, tests, node.dependencies)
+        return self._runner.run_tests(node_id)
+
+    def discard_trial(self, node_id: NodeId) -> None:
+        """Undo a failed trial. Restores the canonical build if the node has
+        committed code; otherwise removes the scratch build files."""
+        if self._store.load_code(node_id):
+            self._builder.invalidate(node_id)
+            self.ensure_built(node_id)
+        else:
+            self._builder.remove(node_id)
 
     # ----- index rebuild -----
 

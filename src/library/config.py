@@ -12,6 +12,8 @@ class LibraryConfig:
     ttl_seconds: float = 3600.0
     max_description_tokens: int = 200
     tokenizer_encoding: str = "cl100k_base"
+    use_test_worker: bool = True
+    test_timeout_seconds: float = 60.0
 
     @classmethod
     def load(cls, root: Path) -> "LibraryConfig":
