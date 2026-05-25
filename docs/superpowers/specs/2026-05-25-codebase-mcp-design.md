@@ -77,14 +77,65 @@ All additive and gated; defaults preserve current behavior.
 4. **`Codebase.move`**: accept either a single node id or a list of node ids (move many into one parent). Single-id behavior is unchanged.
 5. **`Codebase.ensure_built(node_ids)`**: thin delegate to `Graph.ensure_built`, used by `ScratchRunner` to guarantee requested deps are materialized before a scratch import. Generally useful and keeps `Graph` private to `Codebase`.
 
-Test-counting note: tests are pytest functions; the count is the number of `def test_*` functions parsed from the `tests` text (via `ast`), matching how the runner names tests.
+Test-counting note: tests are pytest functions; the count is the number of **top-level** `def test_*` functions parsed from the `tests` text (via `ast`), matching how the runner collects flat test files. Nested/closure `test_*` defs do not count.
+
+## Revision (2026-05-25): searchability, OR tag matching, discovery, guidance
+
+Four execution-time requirements, folded in here. They reshape the search surface but add no new authoritative state beyond one node field.
+
+### R1 — Searchability (distributed code)
+
+Goal: keep reusable helpers in the library without cluttering search. Code should be *distributed* — small pieces composed via dependencies, with internal helpers hidden from discovery but still usable.
+
+- **Data model:** a new `searchable: bool = True` field on `Node` (so it applies to both `CodeNode` and `FolderNode`). Persisted in `meta.json` (`store._node_to_dict`/`_dict_to_node`, defaulting to `True` for older nodes).
+- **Index:** `Codebase._composite_tags` adds `@searchable:true` or `@searchable:false`. Toggling visibility is therefore a cheap `update_tags` (no re-embed), consistent with `@kind:`/`@in:`.
+- **A hidden node still builds, still runs tests, and is still usable as a dependency** of other nodes — it is only absent from default search results.
+- **Defaults:** new nodes are searchable. Claude explicitly hides internal helpers.
+
+### R2 — Tag/folder/type filters are OR (match ≥1), with searchable as an AND gate
+
+`search_filtered` already supports `all_tags` (AND) + `any_groups` (OR-within-group, AND-across-groups). Today `SearchSystem` routes the user `tags` param into `all_tags` (AND) — wrong. Revised:
+
+- user `tags` → **one OR group** (a hit matches if it has **≥1** of them);
+- `folders`, `object_types` → their own OR groups (already are);
+- `@searchable:true` → `all_tags` (an independent AND gate), added by `Codebase.search` unless `include_hidden=True`.
+
+Net filter: `searchable AND (≥1 tag) AND (≥1 folder) AND (≥1 type)`. The low-level `TaggedKVDatabase.search` (used elsewhere, AND semantics) is **not** changed.
+
+### R3 — `discover(query)`: model-driven fallback pipeline
+
+The model — not a threshold — decides whether plain results are good enough. `discover` makes that judgment cheap by gathering, in one call:
+
+- `hits` — the plain semantic search;
+- `candidate_tags` — from `search_tags(query)`;
+- `candidate_folders` — a folder-kind search (`search(query, object_types=["folder"], include_hidden=True)`);
+- `object_types_present` — distinct kinds among `hits`;
+- a `hint` describing the refine step.
+
+If the plain `hits` look weak, Claude refines by calling `search(query, tags=[...], folders=[...], object_types=[...])` with filters chosen from the candidates (OR/match-any). No automatic weak-detection or magic threshold.
+
+### R4 — Guidance to Claude (decomposition + folder self-management)
+
+These are workflow nudges delivered through tool descriptions, structured-result hints, and the README — the architecture already supports them:
+
+- **Decompose:** prefer small, single-purpose nodes; build internal helpers as separate nodes (hidden via `searchable=False`) and compose them as dependencies.
+- **Folders:** create folders as needed; when a `move`/`define`/`make_folder` returns `folder-full`, the result carries a `hint` to create a subfolder (`make_folder`) and `move` related nodes into it (or move some children out), then retry. `health()` surfaces folders at/over the cap.
+
+### Revised api/library additions
+
+In addition to items 1–5 above:
+
+6. **`Node.searchable: bool = True`** (R1) + store serialization.
+7. **`Codebase` searchability:** `@searchable:` composite tag; `define_abstraction`/`make_folder` accept `searchable=True`; `set_searchable(node_id, value)` (persist + cheap retag).
+8. **`SearchSystem` + `Codebase.search`:** route `tags` as an OR group; `Codebase.search(..., include_hidden=False)` adds the `@searchable:true` AND gate (R2). `SearchSystem.search_page` gains a `require_all` set for the gate; cache key includes it.
 
 ## Tool surface
 
 Curated around the discover -> reuse -> implement -> refactor loop. Direct folder primitives are first-class (not composed away), because the user will sometimes drive structure explicitly ("make a folder and move these there").
 
 **d. Search / reuse first**
-- `search(query, *, tags=, object_types=, folders=, page=0)` — semantic hits: id, kind, name, description, score.
+- `discover(query)` — one-shot gather for model-driven refinement: plain hits + candidate tags + candidate folders + object types present + a hint (R3).
+- `search(query, *, tags=, object_types=, folders=, page=0, include_hidden=False)` — semantic hits (id, kind, name, description, score). `tags`/`folders`/`object_types` are OR/match-any; hidden nodes excluded unless `include_hidden=True` (R2).
 - `search_tags(query, page=0)` — discover relevant tags.
 - `list_tags()` — full real-tag vocabulary.
 
@@ -95,7 +146,7 @@ Curated around the discover -> reuse -> implement -> refactor loop. Direct folde
 - `tree(folder_id=None)` / `children(folder_id)` — browse structure from a folder (default root).
 
 **a. Create + test**
-- `define(kind, name, description, *, parent=, dependencies=, tags=)` — create a stub `CodeNode` (`kind` in class/method/executable). No code yet; immediately searchable and dirty.
+- `define(kind, name, description, *, parent=, dependencies=, tags=, searchable=True)` — create a stub `CodeNode` (`kind` in class/method/executable). No code yet; dirty. Pass `searchable=False` for an internal helper that should stay out of search.
 - `implement(node_id, code, tests)` — the gate. Enforces `>= min_tests`, trial-builds against deps, runs pytest in the warm worker, commits only if all pass; otherwise returns the failing test names + first line of each failure so Claude can iterate. Rolls back on failure (existing behavior).
 - `status()` / `dirty()` — what currently needs rebuilding.
 - `rebuild(node_id=None)` — incrementally regenerate + revalidate dirty nodes; returns the `RebuildReport`.
@@ -105,6 +156,7 @@ Curated around the discover -> reuse -> implement -> refactor loop. Direct folde
 - `move(node_ids, new_parent)` — one or many; folder-full checked up front, all-or-nothing.
 - `rename(node_id, new_name)`
 - `remove(node_id)`
+- `make_folder(...)` accepts `searchable=True`; `hide(node_id)` / `show(node_id)` toggle a node's (or folder's) search visibility (R1).
 - `health()` — lists folders at or over `max_folder_children`, so a split can be planned. (Discovery aid; the hard block is enforced in `Codebase`, not here.)
 
 **scratch**
@@ -137,6 +189,7 @@ Tools never surface raw tracebacks at the transport. `Workspace` catches `ApiErr
 
 ## Future work (out of scope)
 
+- **Codebase ingestion (its own sub-project).** Ingest an external codebase's source into the library as nodes — general repo ingestion, with `integrate-mcp` (ingesting an MCP server's source) as one case. Clone into an ephemeral/sandboxed checkout, let Claude select functions/classes, create `CodeNode`s with dependencies, and require tests so each passes the `implement` gate. Builds on this core MCP (uses `define`/`implement`). Security-sensitive — needs its own design: sandboxed clone, the existing `from build.X` forbidden-import scan, no-network test runs, and human-in-the-loop selection. Deferred until the core MCP lands; gets its own spec + plan.
 - Auto-suggesting *how* to split a full folder (clustering by tag/semantics) rather than only flagging it.
 - Persisting/saving the vector index (the existing `SearchSystem.save()` is still uncalled — see `codebase-api-followups`).
 - A saved (named, re-runnable) scratchpad, if ephemeral runs prove insufficient.
