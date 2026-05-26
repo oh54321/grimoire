@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from grimoire.api.codebase import Codebase
@@ -12,6 +13,23 @@ from grimoire.codebase_mcp.ingest.survey import survey as _survey_fn, read_symbo
 from grimoire.codebase_mcp.scratch import ScratchRunner
 
 _KINDS = {"class", "method", "executable"}
+_SIG_RE = re.compile(r"^\s*(?:async\s+def|def|class)\s+([A-Za-z_]\w*)")
+
+
+def _signature_line(code: str, name: str) -> str:
+    """Pick the node's def/class line as its signature. Prefer the def/class whose
+    identifier matches the node name; fall back to the first def/class, then to the
+    first non-blank line. Avoids returning a leading import/assignment line."""
+    if not code:
+        return ""
+    fallback = ""
+    for ln in code.splitlines():
+        m = _SIG_RE.match(ln)
+        if m:
+            if m.group(1) == name:
+                return ln.strip()
+            fallback = fallback or ln.strip()
+    return fallback or next((ln.strip() for ln in code.splitlines() if ln.strip()), "")
 
 
 class Workspace:
@@ -99,7 +117,7 @@ class Workspace:
                     "tags": sorted(t.text for t in node.tags),
                     "children": [self._stub(c) for c in sorted(self._cb.children_of(node_id))]}
         code = self._cb.load_code(node_id)
-        signature = next((ln for ln in code.splitlines() if ln.strip()), "") if code else ""
+        signature = _signature_line(code, node.name)
         return {
             "id": node_id, "kind": node.object_type, "name": node.name,
             "description": node.description, "searchable": node.searchable,
@@ -179,8 +197,9 @@ class Workspace:
         if e.reason == "folder-full":
             cap = self._config.max_folder_children
             return {"ok": False, "reason": "folder-full", "folder_id": e.node_id, "cap": cap,
-                    "hint": (f"folder is full (cap {cap}). Create a subfolder with make_folder "
-                             "and move() related nodes into it, or move some children out, then retry.")}
+                    "hint": (f"folder holds its max {cap} code nodes. Create a subfolder with "
+                             "make_folder (subfolders never count against the cap), then move() "
+                             "related nodes into it — or move some children out, then retry.")}
         return {"ok": False, "reason": e.reason, "node_id": e.node_id, "target_id": e.target_id}
 
     # ---- refactor ----
@@ -215,10 +234,16 @@ class Workspace:
         return {"ok": True}
 
     def hide(self, node_id: str) -> dict:
+        """Make a node non-searchable (searchable=False) so it stops appearing in
+        search/discover. Use for internal helpers. This does NOT delete or read the
+        node — to inspect a node use view/read_code. Reverse with unhide."""
         self._cb.set_searchable(node_id, False)
         return {"ok": True, "id": node_id, "searchable": False}
 
-    def show(self, node_id: str) -> dict:
+    def unhide(self, node_id: str) -> dict:
+        """Make a node searchable again (searchable=True) so it reappears in
+        search/discover. The reverse of hide. This does NOT display the node — to
+        inspect a node use view/read_code."""
         self._cb.set_searchable(node_id, True)
         return {"ok": True, "id": node_id, "searchable": True}
 
@@ -243,7 +268,7 @@ class Workspace:
         def walk(nid: str) -> None:
             node = self._cb.load(nid)
             if isinstance(node, FolderNode):
-                n = len(self._cb.children_of(nid))
+                n = self._cb.code_child_count(nid)
                 if cap > 0 and n >= cap:
                     over.append({"id": nid, "name": node.name, "children": n, "cap": cap})
                 for c in self._cb.children_of(nid):
@@ -254,6 +279,12 @@ class Workspace:
 
     # ---- scratch ----
     def run_scratch(self, code: str, *, deps: list[str] | None = None) -> dict:
+        """Run throwaway Python against built library nodes (never persisted).
+        Pass the node ids you want to call in `deps`; each is auto-built (with its
+        own dependencies) and imported for you, so reference them by their plain
+        name in `code` (e.g. deps=["n1234"] then `print(my_func(1))`). Do NOT
+        `import grimoire` or import from the source repo — the nodes are injected
+        by name, not available as a package."""
         deps = list(deps or ())
         try:
             self._cb.ensure_built(deps)
@@ -266,6 +297,12 @@ class Workspace:
 
     # ---- ingest (read-only source browse) ----
     def fetch_source(self, source: str, *, ref: str | None = None) -> dict:
+        """START HERE to ingest a Python codebase or MCP server into the library.
+        `source` is a git URL or local path; this clones/copies it into a sandbox
+        and returns a session id for survey_source/read_source. Prefer this over any
+        external file-fetch tool (GitHub/web) so the whole ingest pipeline — survey,
+        per-symbol read, then define/implement — works against one consistent snapshot.
+        Call discard_source(session) when finished."""
         try:
             f = self._sandbox.fetch(source, ref=ref)
         except FetchError as e:

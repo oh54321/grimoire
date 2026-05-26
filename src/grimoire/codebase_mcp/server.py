@@ -41,7 +41,7 @@ TOOL_NAMES = [
     "discover", "search", "search_tags", "list_tags",
     "view", "read_code", "read_tests", "children", "tree",
     "define", "implement", "dirty", "rebuild",
-    "make_folder", "move", "rename", "remove", "hide", "show", "mark_tool", "mark_helper", "health",
+    "make_folder", "move", "rename", "remove", "hide", "unhide", "mark_tool", "mark_helper", "health",
     "run_scratch",
     "fetch_source", "survey_source", "read_source", "discard_source",
 ]

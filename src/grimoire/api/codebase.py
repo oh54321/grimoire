@@ -155,11 +155,21 @@ class Codebase:
         parent.children.discard(node_id)
         self._graph.update_node(parent)
 
-    def _check_capacity(self, parent_id: str, adding: int = 1) -> None:
+    def _is_folder(self, node_id: str) -> bool:
+        return isinstance(self._graph.get(node_id), FolderNode)
+
+    def code_child_count(self, parent_id: str) -> int:
+        """Number of non-folder (code) children of a folder. This is what the
+        per-folder cap limits; subfolders are organizational and do not count,
+        so a full folder can always be relieved by adding a subfolder."""
+        return sum(1 for c in self._graph.children_of(parent_id)
+                   if not self._is_folder(c))
+
+    def _check_capacity(self, parent_id: str, adding_code: int = 1) -> None:
         cap = self._graph.config.max_folder_children
         if cap <= 0:
             return
-        if len(self._graph.children_of(parent_id)) + adding > cap:
+        if self.code_child_count(parent_id) + adding_code > cap:
             raise InvalidMove(parent_id, parent_id, "folder-full")
 
     def make_folder(self, name, *, parent_id=None, description="", tags=(),
@@ -167,7 +177,7 @@ class Codebase:
         parent_id = parent_id or self._root_id
         if not isinstance(self._graph.get(parent_id), FolderNode):
             raise InvalidMove(parent_id, parent_id, "target-not-folder")
-        self._check_capacity(parent_id)
+        # subfolders do not count against the cap, so creating one is never blocked.
         nid = new_node_id()
         folder = FolderNode(node_id=nid, name=name, description=description,
                             parent_id=parent_id, tags=self._tagset(tags),
@@ -189,7 +199,8 @@ class Codebase:
                 raise InvalidMove(nid, new_parent_id, "into-own-subtree")
         existing = self._graph.children_of(new_parent_id)
         incoming = [nid for nid in ids if nid not in existing]
-        self._check_capacity(new_parent_id, adding=len(incoming))
+        incoming_code = sum(1 for nid in incoming if not self._is_folder(nid))
+        self._check_capacity(new_parent_id, adding_code=incoming_code)
         for nid in ids:
             node = self._graph.get(nid)
             old_parent = node.parent_id
@@ -306,7 +317,10 @@ class Codebase:
             got = _count_tests(tests)
             if got < floor:
                 raise ImplementationFailed(
-                    node_id, results=[], detail=f"got {got} tests, need >= {floor}")
+                    node_id, results=[],
+                    detail=(f"got {got} test function(s), need >= {floor} distinct test "
+                            "functions (a single @pytest.mark.parametrize function counts "
+                            "as one — split cases into separate test_ functions)"))
         results = self._graph.trial_run(node_id, code, tests)
         passing = bool(results) and all(r.status == TestStatus.PASSING for r in results)
         if not passing:
