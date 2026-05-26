@@ -9,7 +9,7 @@ from pathlib import Path
 class Symbol:
     module: str          # path relative to root, e.g. "pkg/api.py"
     qualname: str        # "ping" or "Client.send"
-    kind: str            # "function" | "class" | "method"
+    kind: str            # define()'s vocabulary: "executable" | "class" | "method"
     signature: str       # "def ping(host: str)" / "class Client"
     doc_first_line: str
     mcp_tool: bool
@@ -48,7 +48,7 @@ def _module_symbols(tree: ast.Module, rel: str) -> list[Symbol]:
     out: list[Symbol] = []
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            out.append(_func(node, rel, node.name, "function"))
+            out.append(_func(node, rel, node.name, "executable"))
         elif isinstance(node, ast.ClassDef):
             out.append(Symbol(rel, node.name, "class", f"class {node.name}",
                               _doc(node), _is_tool(node)))

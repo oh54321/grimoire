@@ -28,7 +28,9 @@ def test_survey_extracts_symbols(tmp_path):
     symbols, skipped = survey(_tree(tmp_path))
     by_q = {s.qualname: s for s in symbols}
 
-    assert by_q["ping"].kind == "function"
+    # survey emits define's vocabulary so the kind can be passed straight into
+    # define() — a top-level function maps to "executable", not "function".
+    assert by_q["ping"].kind == "executable"
     assert by_q["ping"].signature == "def ping(host: str) -> bool"
     assert by_q["ping"].doc_first_line == "Ping a host."
     assert by_q["ping"].mcp_tool is True
@@ -39,6 +41,16 @@ def test_survey_extracts_symbols(tmp_path):
     assert by_q["Client.send"].signature == "def send(self, msg: str) -> None"
 
     assert any(s.endswith("notes.txt") for s in skipped)
+
+
+def test_survey_kinds_are_all_definable(tmp_path):
+    """Every kind survey emits must be one define() accepts, so an agent can pass
+    a surveyed symbol's kind straight into define without a bad-kind round-trip."""
+    from grimoire.codebase_mcp.workspace import _KINDS
+
+    symbols, _ = survey(_tree(tmp_path))
+    assert symbols
+    assert {s.kind for s in symbols} <= _KINDS
 
 
 def test_survey_skips_unparseable_py(tmp_path):
