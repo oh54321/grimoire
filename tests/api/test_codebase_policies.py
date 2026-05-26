@@ -18,6 +18,15 @@ def test_implement_rejects_too_few_tests(tmp_path):
     assert cb.load_code(nid) == ""
 
 
+def test_too_few_tests_message_mentions_distinct_functions(tmp_path):
+    cb = _open(tmp_path, min_tests_per_method=3)
+    nid = cb.add_method("inc", "add one")
+    with pytest.raises(ImplementationFailed) as ei:
+        cb.implement(nid, "def inc(x):\n    return x + 1\n",
+                     "def test_a():\n    assert inc(1) == 2\n")
+    assert "distinct test functions" in str(ei.value)
+
+
 def test_implement_accepts_enough_tests(tmp_path):
     cb = _open(tmp_path, min_tests_per_method=2)
     nid = cb.add_method("inc", "add one")
@@ -35,13 +44,27 @@ def test_implement_default_off_allows_single_test(tmp_path):
     assert res.all_passing
 
 
-def test_make_folder_blocks_over_cap(tmp_path):
+def test_subfolders_do_not_count_against_cap(tmp_path):
+    # folders are organizational; the cap limits code children only, so a parent
+    # can hold any number of subfolders even when at/over the code cap.
     cb = _open(tmp_path, max_folder_children=2)
-    cb.make_folder("a")
-    cb.make_folder("b")
-    with pytest.raises(InvalidMove) as ei:
-        cb.make_folder("c")
-    assert ei.value.reason == "folder-full"
+    cb.add_method("a", "x")
+    cb.add_method("b", "x")                 # parent now at the code cap
+    sub = cb.make_folder("sub")             # not blocked
+    assert sub in cb.children_of(cb.root_id)
+    cb.make_folder("sub2")                  # still not blocked
+    assert cb.code_child_count(cb.root_id) == 2
+
+
+def test_can_subdivide_a_full_folder(tmp_path):
+    # the whole point of subfolders: relieve a folder that is full of code nodes.
+    cb = _open(tmp_path, max_folder_children=2)
+    a = cb.add_method("a", "x")
+    b = cb.add_method("b", "x")             # root full of code
+    sub = cb.make_folder("sub")
+    cb.move([a, b], sub)                    # move code into the new subfolder
+    assert cb.children_of(sub) == {a, b}
+    assert cb.children_of(cb.root_id) == {sub}
 
 
 def test_define_blocks_over_cap(tmp_path):

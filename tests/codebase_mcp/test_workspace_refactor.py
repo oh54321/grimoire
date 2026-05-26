@@ -39,13 +39,13 @@ def test_rename_and_remove(tmp_path):
     assert ws.remove(f)["ok"] is True
 
 
-def test_hide_and_show(tmp_path):
+def test_hide_and_unhide(tmp_path):
     ws = _ws(tmp_path)
     nid = ws.define("method", "widget", "a widget")["id"]
     assert nid in {h["id"] for h in ws.search("widget")["hits"]}
     assert ws.hide(nid)["searchable"] is False
     assert nid not in {h["id"] for h in ws.search("widget")["hits"]}
-    assert ws.show(nid)["searchable"] is True
+    assert ws.unhide(nid)["searchable"] is True
     assert nid in {h["id"] for h in ws.search("widget")["hits"]}
 
 

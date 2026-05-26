@@ -11,7 +11,7 @@ def test_every_tool_name_maps_to_a_workspace_method():
 
 def test_expected_tools_present():
     for name in ("discover", "search", "view", "define", "implement",
-                 "make_folder", "move", "hide", "show", "health", "run_scratch"):
+                 "make_folder", "move", "hide", "unhide", "health", "run_scratch"):
         assert name in TOOL_NAMES
 
 

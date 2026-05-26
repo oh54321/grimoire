@@ -50,6 +50,52 @@ fi
 
 echo
 echo "✅ Installed at: $run_cmd"
+
+# --- Claude Code prompt-reminder hook (keyword-gated, low-token) -------------
+# Installs a UserPromptSubmit hook that nudges the model toward the Grimoire
+# workflow, but only when the prompt is Grimoire-related (zero tokens otherwise).
+hooks_dir="$HOME/.grimoire/hooks"
+mkdir -p "$hooks_dir"
+cp "$here/hooks/grimoire_prompt_reminder.py" "$hooks_dir/grimoire_prompt_reminder.py"
+chmod +x "$hooks_dir/grimoire_prompt_reminder.py"
+
+settings="$HOME/.claude/settings.json"
+mkdir -p "$HOME/.claude"
+if python3 - "$settings" "$hooks_dir/grimoire_prompt_reminder.py" <<'PY'
+import json, sys
+settings_path, script = sys.argv[1], sys.argv[2]
+command = f'python3 "{script}"'
+try:
+    with open(settings_path) as fh:
+        data = json.load(fh)
+except FileNotFoundError:
+    data = {}
+except ValueError:
+    sys.exit("existing settings.json is not valid JSON; leaving it untouched")
+if not isinstance(data, dict):
+    sys.exit("existing settings.json is not a JSON object; leaving it untouched")
+
+entries = data.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
+def is_ours(entry):
+    return any("grimoire_prompt_reminder" in h.get("command", "")
+               for h in entry.get("hooks", []))
+# Idempotent: drop any prior Grimoire reminder entry before re-adding.
+entries[:] = [e for e in entries if not is_ours(e)]
+entries.append({"hooks": [{"type": "command", "command": command}]})
+
+with open(settings_path, "w") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
+then
+  echo "✅ Registered prompt-reminder hook in $settings"
+else
+  echo "⚠  Skipped hook registration for $settings (see message above)"
+fi
+
 echo
 echo "Register with Claude Code (absolute path + user scope = robust across shells/projects):"
 echo "     claude mcp add grimoire --scope user -- $run_cmd"
+echo
+echo "(The prompt-reminder hook activates in new Claude Code sessions; in an open"
+echo " session, open /hooks once or restart to load it.)"

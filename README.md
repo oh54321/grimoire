@@ -132,7 +132,7 @@ All via environment variables:
 | **Find & reuse** | `discover` · `search` (OR filters · `include_hidden` · `is_tool`) · `search_tags` · `list_tags` |
 | **Read** (stub-first) | `view` (signature + meta, not the body) · `read_code` · `read_tests` · `children` · `tree` |
 | **Create & test** | `define` · `implement` *(the gate — code enters only here)* · `dirty` · `rebuild` |
-| **Organize & classify** | `make_folder` · `move` (one or many) · `rename` · `remove` · `hide`/`show` · `mark_tool`/`mark_helper` · `health` |
+| **Organize & classify** | `make_folder` · `move` (one or many) · `rename` · `remove` · `hide`/`unhide` · `mark_tool`/`mark_helper` · `health` |
 | **Scratch** | `run_scratch(code, deps?)` — ephemeral; imports built nodes; never persisted |
 | **Ingest** | `fetch_source` (git URL or local path → ephemeral read-only clone) · `survey_source` (AST symbol list) · `read_source` · `discard_source` — plus the `ingest` prompt that walks the workflow |
 

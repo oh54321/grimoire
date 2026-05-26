@@ -40,6 +40,19 @@ def test_view_stub_hides_body_and_shows_searchable(tmp_path):
     assert v["tests"][0]["name"] == "a"
 
 
+def test_view_signature_skips_leading_import(tmp_path):
+    # the signature must be the def/class line for the node, not the first source
+    # line (which is often an import or module-level assignment).
+    ws = _ws(tmp_path)
+    nid = ws._cb.add_method("pluralize", "plural form of a word")
+    ws._cb.implement(
+        nid,
+        "import re\n\n\ndef pluralize(word):\n    return re.sub(r'$', 's', word)\n",
+        "def test_a():\n    assert pluralize('cat') == 'cats'\n",
+    )
+    assert ws.view(nid)["signature"] == "def pluralize(word):"
+
+
 def test_read_code_and_tests(tmp_path):
     ws = _ws(tmp_path)
     nid = ws._cb.add_method("inc", "add one")
