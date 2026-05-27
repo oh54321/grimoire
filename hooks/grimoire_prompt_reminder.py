@@ -15,21 +15,30 @@ import re
 import sys
 
 REMINDER = (
-    "Grimoire MCP reminder — discover/search BEFORE define (reuse any match as a "
-    "dependency). Code enters the library only via define -> implement (needs "
-    "passing tests). To ingest a repo/MCP, use fetch_source -> survey_source -> "
-    "read_source -> define/implement -> discard_source (not an external file-fetch "
-    "tool). run_scratch: pass deps=[node_ids] and call nodes by their plain name — "
-    "never `import grimoire`. hide/unhide toggle searchability (not display; use "
-    "view/read_code to inspect); mark_tool/mark_helper toggle is_tool."
+    "Grimoire MCP — this looks like reusable-code work, so the library may already "
+    "have what you need or should own what you build. BEFORE writing or editing any "
+    "code, FIRST call discover/search to look for a node to reuse (reuse any match "
+    "as a dependency). New code enters the library ONLY via define -> implement "
+    "(must pass a pytest gate). To pull in a repo or MCP server, use the `ingest` "
+    "prompt: fetch_source -> survey_source -> read_source -> define/implement -> "
+    "discard_source (never a plain file-fetch). Use run_scratch for throwaway macros "
+    "(pass deps=[node_ids], call nodes by their plain name; never `import grimoire`). "
+    "If you decide to write code OUTSIDE the library, state explicitly why Grimoire "
+    "does not apply before doing so."
 )
 
-# Distinctive, low-false-positive triggers: the server name plus tool names that
-# are unlikely to appear in unrelated prompts. Deliberately excludes generic words
-# like "define"/"implement"/"library" to keep unrelated turns silent.
+# Triggers fall in two bands:
+#  - High-precision Grimoire-specific names (server + tool names) that are unlikely
+#    to appear in unrelated prompts.
+#  - Broader reuse/library/ingest intent signals: prompts about building reusable
+#    code, growing a tool/code library, or ingesting a repo are Grimoire-relevant
+#    even when they never say "grimoire". Still excludes bare generic words like
+#    "define"/"implement"/"function" to avoid firing on ordinary coding turns.
 KEYWORDS = re.compile(
-    r"\b(grimoire|run_scratch|fetch_source|survey_source|read_source|"
-    r"discard_source|mark_tool|mark_helper|reusable[- ]code)\b",
+    r"\b(?:grimoire|run_scratch|fetch_source|survey_source|read_source|"
+    r"discard_source|mark_tool|mark_helper|"
+    r"reusable|reuse|ingest|"
+    r"tool\s+codebase|code\s+library|personal\s+library)\b",
     re.IGNORECASE,
 )
 
